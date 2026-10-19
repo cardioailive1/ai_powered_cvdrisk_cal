@@ -36,6 +36,9 @@ class Settings:
     # --- first administrator (created once if no account with this sign-in name exists)
     admin_username = os.getenv("ADMIN_USERNAME", "").strip().lower()
     admin_password = os.getenv("ADMIN_PASSWORD", "")
+    # Break-glass: ADMIN_RESET=true resets the ADMIN_USERNAME account to ADMIN_PASSWORD (active, admin role, unlocked,
+    # MFA cleared, password change forced). Applied once per distinct ADMIN_PASSWORD value; set it back to false after.
+    admin_reset = _bool("ADMIN_RESET", False)
 
     # --- account creation
     # approval: anyone may request an account; an administrator approves it and assigns the role (default)

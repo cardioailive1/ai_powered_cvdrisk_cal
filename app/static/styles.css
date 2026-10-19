@@ -905,3 +905,6 @@ button.small,.small{padding:.45rem .9rem;font-size:.85rem;border-radius:8px;curs
 .data-table td.actions button{margin:0 .3rem .3rem 0}
 .results-panel{top:5rem;max-height:calc(100vh - 6rem)}
 .pill{white-space:nowrap}
+.setup-message{background:rgba(243,156,18,.12);border:1px solid var(--accent);color:var(--text-secondary);padding:.85rem;border-radius:8px;margin-bottom:1rem;font-size:.84rem;text-align:left}
+.setup-message code{color:var(--text-primary)}
+.auth-hint{margin-top:.75rem;text-align:center;font-size:.8rem;color:var(--text-muted)}

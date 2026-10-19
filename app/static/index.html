@@ -13,9 +13,14 @@
     <div class="login-box">
       <div class="login-logo">🫀</div>
       <h2 class="login-title">CV Risk Calculator</h2>
-      <p class="login-subtitle" id="auth-subtitle">Secure Access Required</p>
+      <p class="login-subtitle" id="auth-subtitle">Sign in</p>
       <div id="auth-error" class="error-message" role="alert"></div>
       <div id="auth-info" class="info-message hidden" role="status"></div>
+      <div id="no-admin" class="setup-message hidden" role="status">
+        <b>No administrator account has been set up yet.</b> In the Render dashboard open
+        <i>cardioai-cvd-risk → Environment</i>, set <code>ADMIN_USERNAME</code> to your email and
+        <code>ADMIN_PASSWORD</code> to a password of at least 12 characters, save, and let it redeploy.
+        Then sign in below with that email and password.</div>
 
       <!-- sign in -->
       <form class="login-form auth-view" id="view-signin" autocomplete="on">
@@ -24,7 +29,8 @@
         <div class="form-group"><label class="form-label" for="si-password">Password</label>
           <input type="password" id="si-password" class="form-input" placeholder="Password" autocomplete="current-password" required></div>
         <button type="submit" class="login-btn">Sign in</button>
-        <p class="auth-switch" id="signup-link-row">New here? <a href="#" data-view="view-signup">Request an account</a></p>
+        <p class="auth-hint">Administrators and approved users sign in here.</p>
+        <p class="auth-switch" id="signup-link-row">No account yet? <a href="#" data-view="view-signup">Request an account</a></p>
       </form>
 
       <!-- account request -->

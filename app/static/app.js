@@ -37,7 +37,7 @@
 
   // ---------------------------------------------------------------- sign-in gate
   const VIEWS = ["view-signin", "view-signup", "view-mfa", "view-password", "view-enroll", "view-recovery"];
-  const SUBTITLES = { "view-signin": "Secure Access Required", "view-signup": "Request an account", "view-mfa": "Two-factor authentication",
+  const SUBTITLES = { "view-signin": "Sign in", "view-signup": "Request an account", "view-mfa": "Two-factor authentication",
     "view-password": "Set a new password", "view-enroll": "Protect your account", "view-recovery": "Recovery codes" };
 
   function show(view) {
@@ -138,6 +138,7 @@
     try { AUTHCFG = await api("/api/auth/config"); } catch (_) { AUTHCFG = null; }
     if (!AUTHCFG) return;
     $("#idle-min").textContent = AUTHCFG.idle_minutes;
+    $("#no-admin").classList.toggle("hidden", AUTHCFG.admin_configured !== false);
     $("#signup-link-row").classList.toggle("hidden", AUTHCFG.signup_mode === "closed");
     $("#su-pw-hint").textContent = `At least ${AUTHCFG.password_min_length} characters. A passphrase of several unrelated words works well.`;
     $("#su-domain-hint").textContent = AUTHCFG.allowed_domains.length ? "Allowed: " + AUTHCFG.allowed_domains.map((d) => "@" + d).join(", ") : "";

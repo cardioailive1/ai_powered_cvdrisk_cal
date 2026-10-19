@@ -155,7 +155,8 @@ All settings are environment variables, set in the Render dashboard or in `rende
 |---|---|---|
 | `SECRET_KEY` | generated | Signs MFA challenges; derives CSRF tokens. Same value on all instances. |
 | `MFA_ENCRYPTION_KEY` | generated | Encrypts TOTP secrets. **Do not lose it**: losing it forces every user to re-enrol MFA. |
-| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | First administrator. Created once. |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | — | First administrator. Created once. The sign-in page says so if no administrator exists yet. |
+| `ADMIN_RESET` | `false` | Break-glass: `true` resets the `ADMIN_USERNAME` account to `ADMIN_PASSWORD` (unlocked, MFA cleared, password change forced). Applied once per password value, audited as `users.admin_reset`. Set it back to `false`. |
 | `SIGNUP_MODE` | `approval` | `approval` or `closed` |
 | `SIGNUP_ALLOWED_DOMAINS` | *(any)* | Comma-separated domains allowed to request accounts |
 | `REQUIRE_MFA` | `true` | Keep it on |

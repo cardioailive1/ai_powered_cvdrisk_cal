@@ -307,3 +307,29 @@ def test_mfa_secret_encrypted_at_rest(roles):
         u = db.get(User, roles["clinician"].user["id"])
         assert u.mfa_secret and roles["clinician"].secret not in u.mfa_secret
     assert CLOCK.t  # clock fixture active
+
+
+# ------------------------------------------------------------------ first administrator / break-glass reset
+def test_config_reports_admin_configured(app_started, admin):
+    assert app_started[1].get("/api/auth/config").json()["admin_configured"] is True
+
+
+def test_admin_reset_break_glass(app, admin, monkeypatch):
+    from app import main
+    from app.config import settings
+    request_account(app, "glass@clinic.org")
+    approve(admin, "glass@clinic.org", "admin")
+    b = sign_in(app, "glass@clinic.org", GOOD_PW)
+    monkeypatch.setattr(settings, "admin_username", "glass@clinic.org")
+    monkeypatch.setattr(settings, "admin_password", "Break-Glass-Phrase-2026")
+    main._bootstrap_admin()                                   # ADMIN_RESET off: account untouched
+    assert b.get("/api/meta").status_code == 200
+    monkeypatch.setattr(settings, "admin_reset", True)
+    main._bootstrap_admin()
+    assert b.get("/api/meta").status_code == 401              # old sessions revoked
+    body = new_browser(app).post("/api/auth/login", json={"email": "glass@clinic.org", "password": "Break-Glass-Phrase-2026"}).json()
+    assert body["steps"] == ["change_password", "enroll_mfa"]
+    r = sign_in(app, "glass@clinic.org", "Break-Glass-Phrase-2026", new_password="After-Reset-Phrase-88")
+    main._bootstrap_admin()                                   # same ADMIN_PASSWORD again: not re-applied
+    assert new_browser(app).post("/api/auth/login", json={"email": "glass@clinic.org", "password": "After-Reset-Phrase-88"}).status_code == 200
+    assert r.user["role"] == "admin"

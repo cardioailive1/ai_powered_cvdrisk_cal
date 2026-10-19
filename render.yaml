@@ -46,6 +46,8 @@ services:
         sync: false                  # first administrator's email; created once at startup if it does not exist
       - key: ADMIN_PASSWORD
         sync: false                  # 12+ chars; MFA enrolment is forced at first sign-in. Change it in the app afterwards
+      - key: ADMIN_RESET             # break-glass: "true" resets ADMIN_USERNAME to ADMIN_PASSWORD (clears MFA) once; then set back to "false"
+        value: "false"
       # --- accounts, sessions and sign-in protection (app/config.py has the defaults)
       - key: SIGNUP_MODE
         value: approval              # approval: anyone may request an account, an admin approves it | closed: admins only
