@@ -1,0 +1,11 @@
+# Web app (Render). scikit-learn MUST match the version the model bundle was
+# trained with (see manifest.json -> sklearn_version) — pin the same in Discover.
+fastapi==0.146.0
+uvicorn[standard]==0.53.0
+sqlalchemy==2.1.5
+psycopg[binary]>=3.2
+PyJWT==2.14.0
+numpy==2.5.3
+pandas==3.0.5
+scikit-learn==1.9.1
+joblib==1.6.0

@@ -1,0 +1,170 @@
+# CardioAI — AI-trained CVD Risk Calculators
+
+Five calculators: **AMI, Stroke, Heart Failure, Sudden Cardiac Death, Atrial Fibrillation**. Each gives a 30-day, 1-year and 5-year risk.
+
+- The AI models are trained on de-identified **Mayo Clinic Platform** records inside your Platform_Discover workspace.
+- The app is a FastAPI backend plus a dynamic frontend, deployed on **Render.com**.
+- Published equations run alongside the AI as a reference: Pooled Cohort Equations, CHARGE-AF, CHA₂DS₂-VASc and the ACC/AHA/HRS ICD criteria.
+
+```
+cardioai/
+├── app/                    Render web service (FastAPI)
+│   ├── main.py             API: /api/auth/login, /api/meta, /api/predict, /api/models, /api/assessments, /api/users
+│   ├── auth.py             PBKDF2 password hashes, JWT sessions, login throttling
+│   ├── db.py               Users + assessments (Render Postgres; SQLite locally)
+│   ├── recommendations.py  Guideline-anchored clinical considerations
+│   └── static/             Frontend (form is generated from /api/meta)
+├── cardioai_core/          Shared by app AND training. Same features at train and predict time
+│   ├── schema.py           Calculators, endpoints, horizons, input fields, feature builder
+│   ├── equations.py        Published equations (unit-tested against published examples)
+│   └── bundle.py           Model bundle loader, prediction, per-patient explanations
+├── training/               Runs INSIDE Mayo Clinic Platform_Discover
+│   ├── codesets.py         ICD-9/10, CPT, ICD-10-PCS, LOINC, ATC code lists (clinical review point)
+│   ├── extract.py          OMOP CDM → raw curation dataset (candidates + evidence; BigQuery SQL)
+│   ├── sql/                Rendered SQL for review
+│   ├── nlp.py              Clinical mention detection with negation / history / hypothetical context
+│   ├── labeling.py         Episodes, labelling functions, label model, subtypes (auto-labelling)
+│   ├── audit.py            Automatic data + label audit
+│   ├── imaging_nlp.py      Coronary calcium + LVEF from radiology/echo report text
+│   ├── train.py            Trains every endpoint × horizon from an approved release → bundle + VALIDATION_REPORT.md
+│   ├── synthetic.py / synthetic_raw.py   Synthetic data (pipeline testing only)
+├── curation/               Curation workbench — WORKSPACE ONLY, never deployed to Render
+│   ├── pipeline.py         CLI: init, user-add, label, audit, status, review, approve, waive, release, verify-log, refit
+│   ├── server.py + static/ Web workbench: pipeline, audit review, blinded case review, lead adjudication, metrics, audit trail
+│   ├── adjudication.py     Sampling, blinded double reads, consensus, κ / PPV / NPV / annotation accuracy
+│   ├── gates.py · release.py · store.py (hash-chained audit log) · governance.py · simulate.py (synthetic only)
+├── models/synthetic-demo/  Demo bundle (trained from a synthetic, SIMULATED-adjudication release). NOT for clinical use
+├── tests/                  pytest: equations, NLP, API, all 5 calculators
+└── render.yaml             Render Blueprint (web service + Postgres)
+```
+
+---
+
+## 1. Label, review and adjudicate, then train (inside your Mayo Clinic Platform workspace)
+
+Patient-level data never leaves Mayo's environment. Everything in this section runs **inside the Discover workspace**, including the curation workbench web app. **Never deploy `curation/` to Render.** The only thing exported is the trained **model bundle**: weights plus aggregate metrics, with small cells (<11) suppressed.
+
+```
+ OMOP CDM ──extract──▶ raw/ ──1 auto-label──▶ label run ──2 audit──▶ 3 data-scientist review
+                                                                          │ approve = creates sample
+             model bundle ◀──train── locked release ◀──5 gates + 2 sign-offs── 4 cardiologist adjudication
+```
+
+| Stage | What happens | Who |
+|---|---|---|
+| **1. Auto-label & annotate** | Post-index diagnosis codes become candidate events (codes within 7 days form one episode). Procedures with no nearby code (PCI, CPR, thrombolysis, cardioversion) add *evidence-only* candidates to catch missed codes. About 25 labelling functions score the evidence: troponin rise/fall vs the 99th-percentile URL, BNP/NT-proBNP, head imaging, reperfusion, resuscitation, visit type, diagnosis position, and note text with negation / history / rule-out context. A transparent log-odds model gives *confirmed / uncertain / rejected* plus a subtype (STEMI/NSTEMI/type 2, ischemic/hemorrhagic/TIA, HFrEF/HFmrEF/HFpEF, VF/VT, post-operative AF). LVEF and calcium are extracted from imaging reports. | automatic |
+| **2. Automatic audit** | 22 checks: schema, duplicates, plausibility, unconverted units, core and differential missingness by sex/race, subgroup sizes, follow-up adequacy, leakage (events on/before index), events after death, auto-label uncertainty, labelling-function conflict and coverage, 5-year incidence vs expected range, ICD-9→10 drift, NLP extraction yield. Each check is pass / warn / fail. | automatic |
+| **3. Data scientist review** | Every warning acknowledged, every failure waived with a written justification (≥20 characters) or fixed. Approval locks the review and creates the adjudication sample in the same transaction. | data scientist |
+| **4. Cardiologist adjudication** | Per outcome family: **all** uncertain label-relevant candidates (cap 300), plus 50 random auto-confirmed (measures PPV) and 50 auto-rejected (measures NPV), plus 100 imaging reports for LVEF/CAC checks. Event cases get **two independent blinded reads**: no auto-label, no sampling reason, no other reader. Readers apply the standard definitions (4th UDMI, AHA/ASA stroke, Universal HF, AHA/ACC/HRS SCD, ECG-documented AF ≥30 s), tick the criteria met, and set subtype and date. Disagreements go to a **lead cardiologist who was not a reader** and sees both reads. | cardiologists, lead cardiologist |
+| **5. Gates + release** | See the gates list below. The release then writes `dataset.parquet` + `release.json` (SHA-256, approvals, gates, governance, metrics). | data scientist + lead cardiologist |
+
+**Release gates**
+- Audit fully resolved.
+- Dataset approved by the data scientist.
+- All adjudication cases final.
+- For each outcome family:
+  - Cohen's κ ≥ 0.6;
+  - PPV of auto-confirmed labels ≥ 85%;
+  - NPV of auto-rejected labels ≥ 85%;
+  - indeterminate cases ≤ 15%.
+- LVEF/CAC extraction accuracy ≥ 90%, weighted by sampling probability.
+- Audit trail hash chain intact.
+- Sign-offs from a data scientist **and** a lead cardiologist (two different people).
+
+Gate failures can only be waived by the accountable role, with a justification. Thresholds are in `data/governance.json`; its hash is recorded in every label run and release.
+
+**Final labels**
+- An adjudicated decision overrides the auto-label.
+- Unadjudicated candidates keep their auto-label.
+- Uncertain candidates that weren't adjudicated, and *cannot determine* decisions, are **unresolved**. Training excludes a patient from a horizon when an unresolved candidate falls inside it before any confirmed event, rather than guessing.
+- By default, type 2 MI does not count as an AMI event, and post-operative AF does not count as new-onset AF (`definitions` in governance).
+
+```bash
+# in the Discover workspace
+pip install -r requirements-training.txt
+python -m training.extract --render-only                     # review SQL (training/sql/) — no data access
+python -m training.extract --cdm <proj>.<omop> --scratch <proj>.<scratch> --out data/raw
+
+python -m curation.pipeline init --data-dir data --provenance mayo-clinic-platform
+python -m curation.pipeline user-add dsmith  --role data_scientist    --full-name "D Smith"
+python -m curation.pipeline user-add drjones --role cardiologist      --full-name "Dr A Jones"
+python -m curation.pipeline user-add drlee   --role cardiologist      --full-name "Dr B Lee"
+python -m curation.pipeline user-add drchen  --role lead_cardiologist --full-name "Dr C Chen"
+python -m curation.pipeline label --data-dir data            # 1
+python -m curation.pipeline audit --data-dir data            # 2
+python -m curation.server --data-dir data --port 8090        # 3–5 in the browser (workspace-only)
+python -m curation.pipeline status  --data-dir data
+python -m curation.pipeline release --data-dir data --as dsmith   # or the button in the workbench
+python -m training.train --release data/releases/<REL-id> --out bundles/mcp-$(date +%Y-%m)
+tar -czf mcp-bundle.tar.gz -C bundles mcp-$(date +%Y-%m)     # submit for Mayo export review
+```
+
+**Workbench access.** Open the workbench through the workspace's own browser or port forwarding, for example a JupyterLab server proxy at `…/proxy/8090/`. All URLs are relative, so this works behind a proxy. Bind it to `127.0.0.1` and don't expose it outside the workspace. Roles: `admin`, `data_scientist`, `cardiologist`, `lead_cardiologist`. You need at least two cardiologists for double reads, plus one lead cardiologist to resolve disagreements.
+
+**Audit trail.** Every login, label run, audit, acknowledgement, waiver, case view, read, approval and release is appended to a hash-chained log. Editing or deleting any entry breaks the chain. The workbench shows this, and it is a release gate.
+
+**Improving the label model.** After adjudication, run `python -m curation.pipeline refit-label-model --out lm.json`. It proposes weights learned from the cardiologists' decisions and reports cross-validated AUC against the current weights. To use them, run `label --label-model lm.json`. That creates a **new** label run, which needs its own audit, review and adjudication sample, so the measured PPV/NPV always describe the labels actually used.
+
+**Training.** `train.py` refuses Mayo-provenance data without a release, refuses a release whose dataset hash doesn't match, and records the label governance in the model bundle. The Render app then shows *"Labels: cardiologist-adjudicated (n cases, κ range)"*.
+
+**Before going live, review with your team:**
+- the code lists in `training/codesets.py` (ICD, CPT, ICD-10-PCS, LOINC; the `PRIMARY_STATUS` concept IDs and the default troponin URLs);
+- the labelling-function weights in `training/labeling.py`;
+- the governance thresholds and definitions.
+
+**Known limitations**
+- Patients with **no** candidate code and no trigger procedure can't be found, so sensitivity of the code + procedure net is not measured.
+- Out-of-hospital SCD without an encounter is under-captured.
+- Rule-based NLP needs extending to your report templates. The annotation review measures how well it works.
+
+### Try the whole pipeline on synthetic data (no patient data)
+
+```bash
+python -m training.synthetic_raw --n 60000 --out demo/raw          # raw extract format + hidden truth
+python -m curation.pipeline init --data-dir demo --provenance synthetic-demo
+# add users as above, then: label, audit, review/approve in the workbench (or CLI `review` / `approve --as`)
+python -m curation.pipeline simulate-adjudication --data-dir demo   # SYNTHETIC ONLY: simulated readers from hidden truth
+```
+The simulator refuses to run unless the data folder carries the `SYNTHETIC` marker. Any label run or release it touches is permanently flagged `simulated_adjudication`, and the workbench, release report, model bundle and calculator app all say so.
+
+## 2. Deploy on Render
+
+1. Push this folder to a **private** GitHub repo.
+2. In Render: **New + → Blueprint** → select the repo. `render.yaml` creates the web service and Postgres.
+3. In the dashboard, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (12+ characters). The admin account is created on first boot.
+4. Open the site and sign in. Add clinician accounts with `POST /api/users`, using an admin token.
+
+**Switching from demo to Mayo-trained models.** Either option works:
+- Commit the bundle under `models/mcp-YYYY-MM/` and set `MODEL_DIR` to that path, **or**
+- Host `mcp-bundle.tar.gz` in private storage (e.g. a signed GCS/S3 URL) and set `MODEL_BUNDLE_URL` (plus `MODEL_BUNDLE_TOKEN` if needed).
+
+Then set `ALLOW_DEMO_MODELS=false`. The demo banner disappears automatically once the bundle's provenance is `mayo-clinic-platform`. Confirm your Mayo agreement allows hosting the exported model this way.
+
+## 3. Run locally
+
+```bash
+pip install -r requirements.txt
+ADMIN_USERNAME=admin ADMIN_PASSWORD=change-me-12345 uvicorn app.main:app --reload
+# open http://localhost:8000  — API docs at /docs
+pytest -q                                  # 32 tests (incl. full governed pipeline)
+
+# retrain the demo bundle
+pip install pyarrow
+python -m training.synthetic --out data/synthetic.parquet
+python -m training.train --data data/synthetic.parquet --provenance synthetic-demo --min-events 25 --out models/synthetic-demo
+```
+
+## What changed from the previous version
+
+- **Risk numbers.** Before, they came from fixed multipliers in the browser. The C-statistic was `Math.random()` and the CIs were constants. Now every number comes from a trained model or a published equation, and the C-statistic shown is the measured hold-out value.
+- **Logins.** Before, they were hard-coded in page source. Now they're server-side, with hashed passwords and expiring tokens. **Retire the old passwords.**
+- **New features:**
+  - per-patient "what drives this risk" explanations;
+  - separate endpoints (ischemic/hemorrhagic/TIA, HFrEF/HFpEF);
+  - optional imaging inputs (CAC, LVEF);
+  - assessment history;
+  - input validation.
+
+## Regulatory note
+
+Software that produces patient-specific risk to guide treatment can be a medical device. Before clinical use, get regulatory review (FDA CDS guidance / SaMD) and Mayo Clinic Platform_Validate.

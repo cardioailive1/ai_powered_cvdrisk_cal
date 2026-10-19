@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cardiovascular Event Probability Calculator</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🫀</text></svg>">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-box">
+      <div class="login-logo">🫀</div>
+      <h2 class="login-title">CV Risk Calculator</h2>
+      <p class="login-subtitle">Secure Access Required</p>
+      <div id="error-message" class="error-message"></div>
+      <form class="login-form" id="login-form" autocomplete="on">
+        <div class="form-group">
+          <label class="form-label" for="username">Username</label>
+          <input type="text" id="username" class="form-input" placeholder="Enter username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" id="password" class="form-input" placeholder="Enter password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="login-btn" id="login-btn">Access Calculator</button>
+      </form>
+    </div>
+  </div>
+
+  <span id="user-chip" class="user-chip hidden"></span>
+  <button id="logout-btn" class="logout-btn hidden">Logout</button>
+
+  <div id="main-content" class="hidden">
+    <div class="container">
+      <header>
+        <h1>Cardiovascular Event Probability Calculator</h1>
+        <p class="subtitle">AI-Powered Risk Stratification Framework | AHA Council Guidelines</p>
+        <div class="model-strip" id="model-strip"></div>
+      </header>
+
+      <div id="demo-banner" class="demo-banner hidden"></div>
+
+      <div class="calculator-grid">
+        <div>
+          <div class="form-section">
+            <h2 class="section-title"><span class="section-icon">1</span>Select Calculator Type</h2>
+            <div id="calc-list"></div>
+          </div>
+          <form id="patient-form" novalidate>
+            <div id="form-sections"></div>
+            <div id="form-errors" class="form-errors hidden"></div>
+            <div class="button-group">
+              <button type="submit" class="btn-primary" id="calc-btn">Calculate Risk</button>
+              <button type="button" class="btn-secondary" id="reset-btn">Reset</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="results-panel" id="results-panel">
+          <h2 class="results-header">Risk Assessment</h2>
+          <div id="results-content">
+            <div style="text-align:center;padding:3rem 0;color:var(--text-muted)">
+              <p>Complete the form and click "Calculate Risk" to see the cardiovascular event probability assessment.</p>
+            </div>
+          </div>
+          <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p style="color:var(--text-secondary)">Running models…</p>
+          </div>
+          <div id="history" class="hidden">
+            <div class="block-title">Your recent assessments</div>
+            <div id="history-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        <strong>⚠️ Medical Disclaimer:</strong> This calculator is intended for educational and research purposes only.
+        AI predictions come from machine-learning models whose training data and hold-out performance are shown above;
+        published equations are shown alongside for reference. Results should not replace clinical judgment, and all
+        medical decisions should be made by qualified healthcare providers. This tool has not been FDA-cleared for
+        diagnostic or treatment purposes.
+      </div>
+    </div>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

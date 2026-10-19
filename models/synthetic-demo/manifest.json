@@ -1,0 +1,3788 @@
+{
+  "bundle_id": "synthetic-demo",
+  "created_utc": "2026-10-19T14:37:33+00:00",
+  "provenance": "synthetic-demo",
+  "data_description": "SYNTHETIC data \u2014 not derived from patients. For pipeline testing only.",
+  "release_id": "REL-20261019-143535-df2c",
+  "n_patients": 60000,
+  "sklearn_version": "1.9.1",
+  "feature_names": [
+    "age",
+    "sex_male",
+    "race_black",
+    "race_hispanic",
+    "race_asian",
+    "race_other",
+    "height_cm",
+    "weight_kg",
+    "bmi",
+    "prior_mi",
+    "prior_stroke",
+    "angina",
+    "heart_failure",
+    "afib",
+    "family_hx_cad",
+    "hypertension",
+    "pad",
+    "sbp",
+    "dbp",
+    "smoking_former",
+    "smoking_current",
+    "diabetes_pre",
+    "diabetes_t1",
+    "diabetes_t2",
+    "total_chol",
+    "hdl",
+    "ldl",
+    "trig",
+    "glucose",
+    "hba1c",
+    "hscrp",
+    "egfr",
+    "non_hdl",
+    "cac_score_log",
+    "lvef",
+    "statin",
+    "aspirin",
+    "acei_arb",
+    "beta_blocker",
+    "anticoagulant",
+    "antihypertensive"
+  ],
+  "reference_values": {
+    "age": 58.0,
+    "sex_male": 0.0,
+    "race_black": 0.0,
+    "race_hispanic": 0.0,
+    "race_asian": 0.0,
+    "race_other": 0.0,
+    "height_cm": 169.5,
+    "weight_kg": 81.5,
+    "bmi": 28.52146608646576,
+    "prior_mi": 0.0,
+    "prior_stroke": 0.0,
+    "angina": 0.0,
+    "heart_failure": 0.0,
+    "afib": 0.0,
+    "family_hx_cad": 0.0,
+    "hypertension": 0.0,
+    "pad": 0.0,
+    "sbp": 127.0,
+    "dbp": 78.0,
+    "smoking_former": 0.0,
+    "smoking_current": 0.0,
+    "diabetes_pre": 0.0,
+    "diabetes_t1": 0.0,
+    "diabetes_t2": 0.0,
+    "total_chol": 195.0,
+    "hdl": 52.0,
+    "ldl": 112.0,
+    "trig": 133.0,
+    "glucose": 95.0,
+    "hba1c": 5.4,
+    "hscrp": 1.93,
+    "egfr": 68.0,
+    "non_hdl": 142.0,
+    "cac_score_log": 2.995732273553991,
+    "lvef": 58.0,
+    "statin": 0.0,
+    "aspirin": 0.0,
+    "acei_arb": 0.0,
+    "beta_blocker": 0.0,
+    "anticoagulant": 0.0,
+    "antihypertensive": 0.0
+  },
+  "label_definition": "first confirmed event within horizon; death before horizon without event = negative; censored or unresolved candidate within horizon = excluded",
+  "label_governance": {
+    "status": "simulated",
+    "release_id": "REL-20261019-143535-df2c",
+    "label_run_id": "LR-20261019-142911-c040",
+    "dataset_sha256": "3ed0427d4072f29c713c3cb4fd222ff80bc05eaf1cd404e14061882f8c080612",
+    "label_model": "expert-v1",
+    "approvals": [
+      {
+        "stage": "ds_dataset_review",
+        "user": "dscientist",
+        "role": "data_scientist",
+        "at": "2026-10-19T14:29:19.895952"
+      },
+      {
+        "stage": "ds_release",
+        "user": "dscientist",
+        "role": "data_scientist",
+        "at": "2026-10-19T14:34:22.718037"
+      },
+      {
+        "stage": "cardiology_release",
+        "user": "leadcard",
+        "role": "lead_cardiologist",
+        "at": "2026-10-19T14:34:59.386067"
+      }
+    ],
+    "adjudicated_cases": 1616,
+    "families": {
+      "ami": {
+        "cases": 168,
+        "kappa": 0.8087105038428694,
+        "ppv_auto_confirmed": 1.0,
+        "npv_auto_rejected": 1.0
+      },
+      "stroke": {
+        "cases": 400,
+        "kappa": 0.7175071242720853,
+        "ppv_auto_confirmed": 1.0,
+        "npv_auto_rejected": 1.0
+      },
+      "hf": {
+        "cases": 400,
+        "kappa": 0.5551943886061331,
+        "ppv_auto_confirmed": 1.0,
+        "npv_auto_rejected": 0.98
+      },
+      "scd": {
+        "cases": 168,
+        "kappa": 0.7050641458474005,
+        "ppv_auto_confirmed": 1.0,
+        "npv_auto_rejected": 1.0
+      },
+      "af": {
+        "cases": 400,
+        "kappa": 0.7371663244353183,
+        "ppv_auto_confirmed": 1.0,
+        "npv_auto_rejected": 0.98
+      }
+    },
+    "simulated_adjudication": true,
+    "synthetic_data": true
+  },
+  "models": {
+    "ami__30d": {
+      "file": "models/ami__30d.joblib",
+      "calculator": "ami",
+      "endpoint": "ami",
+      "horizon": "30d",
+      "metrics": {
+        "auc": 0.7368111677866146,
+        "auc_ci": [
+          0.643409839855919,
+          0.8385782149071553
+        ],
+        "target_auc": 0.82,
+        "meets_target": false,
+        "n_train": 48000,
+        "events_train": 103,
+        "n_test": 12000,
+        "events_test": 26,
+        "event_rate_test": 0.0021666666666666666,
+        "calibration": {
+          "slope": 0.9764193550241801,
+          "intercept": -0.15113098004813225,
+          "expected_observed": 1.0006144210864014,
+          "brier": 0.0021559859677535687
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0007549101221153196,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0009039939707511251,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0010360225648576504,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0011722789439169395,
+            "observed": 0.0016666666666666668,
+            "n": 1200
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.001337318571423311,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0015382994221522126,
+            "observed": 0.0016666666666666668,
+            "n": 1200
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.001815678894789894,
+            "observed": 0.0025,
+            "n": 1200
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.002257926358741417,
+            "observed": 0.0016666666666666668,
+            "n": 1200
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0031578296886252697,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.007705720586165562,
+            "observed": 0.010833333333333334,
+            "n": 1200
+          }
+        ],
+        "logistic_regression_auc": 0.792807493158253,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 6195,
+            "events": 11,
+            "auc": 0.8016729389627191,
+            "ci": [
+              0.5724174906256458,
+              0.9380049844725598
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5805,
+            "events": 15,
+            "auc": 0.650224525043178,
+            "ci": [
+              0.5462299520768428,
+              0.8094878659813833
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 591,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1073,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 985,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 472,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8879,
+            "events": 18,
+            "auc": 0.7296894004940501,
+            "ci": [
+              0.5898192127862167,
+              0.8770430151794788
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "ami__1y": {
+      "file": "models/ami__1y.joblib",
+      "calculator": "ami",
+      "endpoint": "ami",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.8197063617250602,
+        "auc_ci": [
+          0.7889317459901093,
+          0.8472588573598316
+        ],
+        "target_auc": 0.82,
+        "meets_target": false,
+        "n_train": 45603,
+        "events_train": 1060,
+        "n_test": 11351,
+        "events_test": 254,
+        "event_rate_test": 0.02237688309400053,
+        "calibration": {
+          "slope": 0.9682893130309942,
+          "intercept": -0.1430549769888714,
+          "expected_observed": 1.0433372221646404,
+          "brier": 0.020511676137226268
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0014586150355872522,
+            "observed": 0.0008802816901408451,
+            "n": 1136
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.003654723123690839,
+            "observed": 0.0026431718061674008,
+            "n": 1135
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.005065299272463393,
+            "observed": 0.0026431718061674008,
+            "n": 1135
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.006495983380094048,
+            "observed": 0.007048458149779736,
+            "n": 1135
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.008927618235481998,
+            "observed": 0.010572687224669603,
+            "n": 1135
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.012218121770911028,
+            "observed": 0.00881057268722467,
+            "n": 1135
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.01625961578331011,
+            "observed": 0.02026431718061674,
+            "n": 1135
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.02344433170465245,
+            "observed": 0.024669603524229075,
+            "n": 1135
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.04036881155627546,
+            "observed": 0.038766519823788544,
+            "n": 1135
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.11559251521663748,
+            "observed": 0.10748898678414097,
+            "n": 1135
+          }
+        ],
+        "logistic_regression_auc": 0.8314292221988067,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5880,
+            "events": 81,
+            "auc": 0.8178666394163319,
+            "ci": [
+              0.7649440261786854,
+              0.8667260906904409
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5471,
+            "events": 173,
+            "auc": 0.7961751298886919,
+            "ci": [
+              0.7679465086609337,
+              0.8282769517924559
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 570,
+            "events": 16,
+            "auc": 0.8314530685920578,
+            "ci": [
+              0.7453430340841453,
+              0.9260480717594819
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 1010,
+            "events": 28,
+            "auc": 0.8807281059063137,
+            "ci": [
+              0.8141844875942863,
+              0.9378202520237892
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 932,
+            "events": 22,
+            "auc": 0.8957042957042957,
+            "ci": [
+              0.8529555185108594,
+              0.9383585547448605
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": 14,
+            "auc": 0.7896638655462185,
+            "ci": [
+              0.6929306608884074,
+              0.8640466810691745
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 8400,
+            "events": 174,
+            "auc": 0.8014408338014314,
+            "ci": [
+              0.7772896003761672,
+              0.8238329159792629
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "ami__5y": {
+      "file": "models/ami__5y.joblib",
+      "calculator": "ami",
+      "endpoint": "ami",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.8120322699086161,
+        "auc_ci": [
+          0.7938633437765308,
+          0.8275871496564086
+        ],
+        "target_auc": 0.82,
+        "meets_target": false,
+        "n_train": 27418,
+        "events_train": 3331,
+        "n_test": 6928,
+        "events_test": 800,
+        "event_rate_test": 0.11547344110854503,
+        "calibration": {
+          "slope": 1.0379262388671895,
+          "intercept": -0.022133519953620017,
+          "expected_observed": 1.0600896824172024,
+          "brier": 0.08442601888052177
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.010602981571116424,
+            "observed": 0.007215007215007215,
+            "n": 693
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.01992802028354978,
+            "observed": 0.020202020202020204,
+            "n": 693
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.029917021395558,
+            "observed": 0.02886002886002886,
+            "n": 693
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0430549391697917,
+            "observed": 0.044797687861271675,
+            "n": 692
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.06255776860308103,
+            "observed": 0.04184704184704185,
+            "n": 693
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0879061630266844,
+            "observed": 0.07215007215007214,
+            "n": 693
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.1184399101278998,
+            "observed": 0.11705202312138728,
+            "n": 692
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.1603543808663572,
+            "observed": 0.13275613275613277,
+            "n": 693
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.23641586856107502,
+            "observed": 0.23809523809523808,
+            "n": 693
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.454824736846632,
+            "observed": 0.45165945165945165,
+            "n": 693
+          }
+        ],
+        "logistic_regression_auc": 0.8187159350522193,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3545,
+            "events": 289,
+            "auc": 0.8087289475697781,
+            "ci": [
+              0.7833257642254186,
+              0.8352605628251969
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3383,
+            "events": 511,
+            "auc": 0.797407590120415,
+            "ci": [
+              0.7732897568756472,
+              0.8165855245738083
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 357,
+            "events": 49,
+            "auc": 0.8075139146567718,
+            "ci": [
+              0.7249931198814428,
+              0.8689317415201848
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 635,
+            "events": 96,
+            "auc": 0.8093208874458875,
+            "ci": [
+              0.7789410456675651,
+              0.847942794407313
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 551,
+            "events": 57,
+            "auc": 0.8465267419561048,
+            "ci": [
+              0.7962191028122627,
+              0.8979043218578496
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 277,
+            "events": 34,
+            "auc": 0.7942386831275721,
+            "ci": [
+              0.7241543671922946,
+              0.8406956817657143
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 5108,
+            "events": 564,
+            "auc": 0.8100805910373589,
+            "ci": [
+              0.7944942320995186,
+              0.828045497000516
+            ]
+          }
+        ],
+        "equation_comparison": {
+          "equation": "Pooled Cohort Equations (2013 ACC/AHA)",
+          "n": 5217,
+          "equation_auc": 0.7498525270939119,
+          "ai_auc_same_patients": 0.7588546978589553
+        }
+      }
+    },
+    "any_stroke__1y": {
+      "file": "models/any_stroke__1y.joblib",
+      "calculator": "stroke",
+      "endpoint": "any_stroke",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.7513314629596556,
+        "auc_ci": [
+          0.7098842828265673,
+          0.7963133668923341
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 45545,
+        "events_train": 590,
+        "n_test": 11342,
+        "events_test": 144,
+        "event_rate_test": 0.012696173514371363,
+        "calibration": {
+          "slope": 0.8911224129254782,
+          "intercept": -0.44937748378373754,
+          "expected_observed": 1.0281411078595575,
+          "brier": 0.012346814753851581
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.002204784629662823,
+            "observed": 0.0026431718061674008,
+            "n": 1135
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.002819177369801877,
+            "observed": 0.001763668430335097,
+            "n": 1134
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0036021669823789204,
+            "observed": 0.001763668430335097,
+            "n": 1134
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.004823831152925816,
+            "observed": 0.007936507936507936,
+            "n": 1134
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.006176624782276691,
+            "observed": 0.008818342151675485,
+            "n": 1134
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.007980476263616238,
+            "observed": 0.010582010582010581,
+            "n": 1134
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.010657987465116285,
+            "observed": 0.009700176366843033,
+            "n": 1134
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.015145037464975492,
+            "observed": 0.015873015873015872,
+            "n": 1134
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0226765192989459,
+            "observed": 0.020282186948853614,
+            "n": 1134
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.054421060980217414,
+            "observed": 0.04757709251101322,
+            "n": 1135
+          }
+        ],
+        "logistic_regression_auc": 0.7503299200254013,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5878,
+            "events": 68,
+            "auc": 0.7837400020249062,
+            "ci": [
+              0.720330714137713,
+              0.8269583725329396
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5464,
+            "events": 76,
+            "auc": 0.7217110147305903,
+            "ci": [
+              0.6652872610281764,
+              0.7836376035484668
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 569,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1009,
+            "events": 16,
+            "auc": 0.753147029204431,
+            "ci": [
+              0.6192433806805189,
+              0.8642159040438329
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 932,
+            "events": 14,
+            "auc": 0.8082010582010583,
+            "ci": [
+              0.6788761302739247,
+              0.9040936740683186
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8393,
+            "events": 102,
+            "auc": 0.7359492102232281,
+            "ci": [
+              0.6824639250371457,
+              0.7951381982004497
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "any_stroke__5y": {
+      "file": "models/any_stroke__5y.joblib",
+      "calculator": "stroke",
+      "endpoint": "any_stroke",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.7472795824987022,
+        "auc_ci": [
+          0.7267245426161703,
+          0.7670876064503241
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 26912,
+        "events_train": 2114,
+        "n_test": 6815,
+        "events_test": 531,
+        "event_rate_test": 0.07791636096845195,
+        "calibration": {
+          "slope": 0.8839677613193004,
+          "intercept": -0.261693283743994,
+          "expected_observed": 1.0148609852604693,
+          "brier": 0.06638643021063134
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.007217804389140485,
+            "observed": 0.016129032258064516,
+            "n": 682
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.017302566623036475,
+            "observed": 0.010279001468428781,
+            "n": 681
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.02670626119930533,
+            "observed": 0.020527859237536656,
+            "n": 682
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.035355459768152145,
+            "observed": 0.039647577092511016,
+            "n": 681
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.044099839393468794,
+            "observed": 0.07331378299120235,
+            "n": 682
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.05793122647120938,
+            "observed": 0.06461086637298091,
+            "n": 681
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.07657291374044738,
+            "observed": 0.06607929515418502,
+            "n": 681
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.10060146709164129,
+            "observed": 0.09970674486803519,
+            "n": 682
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.14826218811422684,
+            "observed": 0.13069016152716592,
+            "n": 681
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.2766051229572108,
+            "observed": 0.25806451612903225,
+            "n": 682
+          }
+        ],
+        "logistic_regression_auc": 0.7536504991003367,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3523,
+            "events": 274,
+            "auc": 0.7551357745111916,
+            "ci": [
+              0.7253905906515324,
+              0.7840247469537918
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3292,
+            "events": 257,
+            "auc": 0.7383637074596631,
+            "ci": [
+              0.7090968525770271,
+              0.7669408195915547
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 347,
+            "events": 22,
+            "auc": 0.7455244755244754,
+            "ci": [
+              0.6458853327965647,
+              0.8453708662931223
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 621,
+            "events": 72,
+            "auc": 0.7581840720501922,
+            "ci": [
+              0.6936343056835211,
+              0.8075204188210465
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 543,
+            "events": 42,
+            "auc": 0.7561068339511453,
+            "ci": [
+              0.6786811708475458,
+              0.8225420875420875
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 274,
+            "events": 21,
+            "auc": 0.7584227366836062,
+            "ci": [
+              0.6393810154898865,
+              0.8551730591212792
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 5030,
+            "events": 374,
+            "auc": 0.7404682819707077,
+            "ci": [
+              0.7123825579448629,
+              0.7663554585556234
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "ischemic_stroke__1y": {
+      "file": "models/ischemic_stroke__1y.joblib",
+      "calculator": "stroke",
+      "endpoint": "ischemic_stroke",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.7352169622873096,
+        "auc_ci": [
+          0.6969307359677374,
+          0.7770945212086255
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 45540,
+        "events_train": 450,
+        "n_test": 11341,
+        "events_test": 111,
+        "event_rate_test": 0.00978749669341328,
+        "calibration": {
+          "slope": 0.7870412793089692,
+          "intercept": -0.908506182961615,
+          "expected_observed": 1.0219321346842614,
+          "brier": 0.009658292026721804
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0017390764829193852,
+            "observed": 0.0,
+            "n": 1135
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.002102360758658141,
+            "observed": 0.001763668430335097,
+            "n": 1134
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.002624542545749254,
+            "observed": 0.004409171075837742,
+            "n": 1134
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0035237771098933003,
+            "observed": 0.005291005291005291,
+            "n": 1134
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.004611507032917828,
+            "observed": 0.007054673721340388,
+            "n": 1134
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.006000444138284339,
+            "observed": 0.008818342151675485,
+            "n": 1134
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.008073329315336717,
+            "observed": 0.009700176366843033,
+            "n": 1134
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.011644566420057963,
+            "observed": 0.013227513227513227,
+            "n": 1134
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.017929531811267805,
+            "observed": 0.014109347442680775,
+            "n": 1134
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.04177972494353088,
+            "observed": 0.03350970017636684,
+            "n": 1134
+          }
+        ],
+        "logistic_regression_auc": 0.7465283627349523,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5878,
+            "events": 50,
+            "auc": 0.754021962937543,
+            "ci": [
+              0.6825357153134887,
+              0.8119917751429989
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5463,
+            "events": 61,
+            "auc": 0.7177578431789076,
+            "ci": [
+              0.6572324152632594,
+              0.7667049062951575
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 569,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1009,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 932,
+            "events": 12,
+            "auc": 0.8433876811594203,
+            "ci": [
+              0.7215538334852807,
+              0.9161714196993836
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8392,
+            "events": 79,
+            "auc": 0.7126035628198628,
+            "ci": [
+              0.6576253540470524,
+              0.7639069929693537
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "ischemic_stroke__5y": {
+      "file": "models/ischemic_stroke__5y.joblib",
+      "calculator": "stroke",
+      "endpoint": "ischemic_stroke",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.7403401360544217,
+        "auc_ci": [
+          0.7199246629856381,
+          0.7676643006900222
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 26746,
+        "events_train": 1566,
+        "n_test": 6775,
+        "events_test": 405,
+        "event_rate_test": 0.05977859778597786,
+        "calibration": {
+          "slope": 0.8638006711077124,
+          "intercept": -0.30638886061379134,
+          "expected_observed": 0.9837866304789752,
+          "brier": 0.052871369312480675
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.005530459026226009,
+            "observed": 0.0058997050147492625,
+            "n": 678
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.010561835571037686,
+            "observed": 0.013293943870014771,
+            "n": 677
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0179124668453365,
+            "observed": 0.017699115044247787,
+            "n": 678
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.025560984713785265,
+            "observed": 0.03988183161004431,
+            "n": 677
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.032840115814207683,
+            "observed": 0.05457227138643068,
+            "n": 678
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.04181861813734486,
+            "observed": 0.0413589364844904,
+            "n": 677
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.05238183545964015,
+            "observed": 0.0620384047267356,
+            "n": 677
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.0723504676830498,
+            "observed": 0.06637168141592921,
+            "n": 678
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.11289364226975572,
+            "observed": 0.09601181683899557,
+            "n": 677
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.21616845686919822,
+            "observed": 0.20058997050147492,
+            "n": 678
+          }
+        ],
+        "logistic_regression_auc": 0.7546721708626472,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3506,
+            "events": 216,
+            "auc": 0.735842339299786,
+            "ci": [
+              0.7086555783284421,
+              0.7701081499621286
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3269,
+            "events": 189,
+            "auc": 0.7454313543599258,
+            "ci": [
+              0.712224373852091,
+              0.7809929333719737
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 346,
+            "events": 20,
+            "auc": 0.7266871165644173,
+            "ci": [
+              0.6147914664794145,
+              0.8460636937476192
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 619,
+            "events": 54,
+            "auc": 0.7289741068502131,
+            "ci": [
+              0.6567940355163838,
+              0.7941768390473677
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 538,
+            "events": 33,
+            "auc": 0.7639663966396638,
+            "ci": [
+              0.6975722293489334,
+              0.8492973700264607
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 271,
+            "events": 17,
+            "auc": 0.7761695229272811,
+            "ci": [
+              0.6416265075504206,
+              0.85965049405589
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 5001,
+            "events": 281,
+            "auc": 0.733572968815972,
+            "ci": [
+              0.7064777733512105,
+              0.760624758025753
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hemorrhagic_stroke__5y": {
+      "file": "models/hemorrhagic_stroke__5y.joblib",
+      "calculator": "stroke",
+      "endpoint": "hemorrhagic_stroke",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.6957112654787073,
+        "auc_ci": [
+          0.5934792625737105,
+          0.7786713045274944
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 26323,
+        "events_train": 121,
+        "n_test": 6650,
+        "events_test": 28,
+        "event_rate_test": 0.004210526315789474,
+        "calibration": {
+          "slope": 0.9853533639281487,
+          "intercept": -0.1786822640378489,
+          "expected_observed": 1.0917466365388466,
+          "brier": 0.004187314298440253
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0023410270519417234,
+            "observed": 0.0015037593984962407,
+            "n": 665
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0026047246771376984,
+            "observed": 0.0015037593984962407,
+            "n": 665
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0028593842783331282,
+            "observed": 0.0015037593984962407,
+            "n": 665
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.003229512057968809,
+            "observed": 0.0030075187969924814,
+            "n": 665
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.003739745711010047,
+            "observed": 0.0,
+            "n": 665
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0042266291793183015,
+            "observed": 0.004511278195488722,
+            "n": 665
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.004776170287661255,
+            "observed": 0.004511278195488722,
+            "n": 665
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.00543800594348582,
+            "observed": 0.007518796992481203,
+            "n": 665
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.006533658232097317,
+            "observed": 0.009022556390977444,
+            "n": 665
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.010219422014260494,
+            "observed": 0.009022556390977444,
+            "n": 665
+          }
+        ],
+        "logistic_regression_auc": 0.7223756310135048,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3441,
+            "events": 13,
+            "auc": 0.6412350776411453,
+            "ci": [
+              0.4955439983883707,
+              0.8185920386991846
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3209,
+            "events": 15,
+            "auc": 0.7412439991651012,
+            "ci": [
+              0.6516888939518658,
+              0.8258261528834118
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 342,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 606,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 529,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 266,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 4907,
+            "events": 19,
+            "auc": 0.6758064863468,
+            "ci": [
+              0.5623415179587157,
+              0.7753089600776202
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "tia__1y": {
+      "file": "models/tia__1y.joblib",
+      "calculator": "stroke",
+      "endpoint": "tia",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.7348920121394267,
+        "auc_ci": [
+          0.6291158445040946,
+          0.8583475117099312
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 45528,
+        "events_train": 111,
+        "n_test": 11337,
+        "events_test": 24,
+        "event_rate_test": 0.0021169621593014024,
+        "calibration": {
+          "slope": 1.0023490991635158,
+          "intercept": -0.1592480806956167,
+          "expected_observed": 1.156439196090995,
+          "brier": 0.002104975456232499
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.001087396358819193,
+            "observed": 0.0008818342151675485,
+            "n": 1134
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0011544423488018274,
+            "observed": 0.0,
+            "n": 1134
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0012205571279643311,
+            "observed": 0.00088261253309797,
+            "n": 1133
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0013009972194368401,
+            "observed": 0.0026455026455026454,
+            "n": 1134
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.0014239430454893061,
+            "observed": 0.0008818342151675485,
+            "n": 1134
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0016905368448498935,
+            "observed": 0.0,
+            "n": 1133
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.0022062845111279037,
+            "observed": 0.0026455026455026454,
+            "n": 1134
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.002879648690190867,
+            "observed": 0.00264783759929391,
+            "n": 1133
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0039278157688990845,
+            "observed": 0.001763668430335097,
+            "n": 1134
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.007588388180405657,
+            "observed": 0.008818342151675485,
+            "n": 1134
+          }
+        ],
+        "logistic_regression_auc": 0.7147529390966144,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5875,
+            "events": 12,
+            "auc": 0.8370714651202457,
+            "ci": [
+              0.7530623639453659,
+              0.9212766223338552
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5462,
+            "events": 12,
+            "auc": 0.6396330275229358,
+            "ci": [
+              0.48530268745859495,
+              0.7629732505160514
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 569,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1009,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 932,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8388,
+            "events": 18,
+            "auc": 0.7461900969069428,
+            "ci": [
+              0.5945830021068101,
+              0.8705941327599833
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "tia__5y": {
+      "file": "models/tia__5y.joblib",
+      "calculator": "stroke",
+      "endpoint": "tia",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.6894068664255,
+        "auc_ci": [
+          0.6370580967331764,
+          0.7292174069196112
+        ],
+        "target_auc": 0.75,
+        "meets_target": false,
+        "n_train": 26399,
+        "events_train": 425,
+        "n_test": 6676,
+        "events_test": 98,
+        "event_rate_test": 0.014679448771719592,
+        "calibration": {
+          "slope": 1.2669084061978524,
+          "intercept": 0.9573030048863163,
+          "expected_observed": 1.1012972703620636,
+          "brier": 0.014384618001889877
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.006941866388903557,
+            "observed": 0.0029940119760479044,
+            "n": 668
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.008647121404926496,
+            "observed": 0.0029940119760479044,
+            "n": 668
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.009980860279235603,
+            "observed": 0.008995502248875561,
+            "n": 667
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.011061719315970157,
+            "observed": 0.008982035928143712,
+            "n": 668
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.012277520464233416,
+            "observed": 0.005997001499250375,
+            "n": 667
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.01437640916793234,
+            "observed": 0.016467065868263474,
+            "n": 668
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.017592532935827698,
+            "observed": 0.020989505247376312,
+            "n": 667
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.02101808320756049,
+            "observed": 0.020958083832335328,
+            "n": 668
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.024994243336058507,
+            "observed": 0.019490254872563718,
+            "n": 667
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.03477428070368944,
+            "observed": 0.038922155688622756,
+            "n": 668
+          }
+        ],
+        "logistic_regression_auc": 0.7078232326679532,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3454,
+            "events": 45,
+            "auc": 0.7201134252468955,
+            "ci": [
+              0.6506262724653495,
+              0.7897756116168374
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3222,
+            "events": 53,
+            "auc": 0.6632114172079758,
+            "ci": [
+              0.5788649965471708,
+              0.7214944614664709
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 343,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 606,
+            "events": 11,
+            "auc": 0.6441558441558441,
+            "ci": [
+              0.39266167453807277,
+              0.797110552763819
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 530,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 269,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 4928,
+            "events": 74,
+            "auc": 0.6947516119333177,
+            "ci": [
+              0.6463880658607605,
+              0.7460655779456542
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hf__30d": {
+      "file": "models/hf__30d.joblib",
+      "calculator": "hf",
+      "endpoint": "hf",
+      "horizon": "30d",
+      "metrics": {
+        "auc": 0.9189099507427909,
+        "auc_ci": [
+          0.8782608929411445,
+          0.9538023342278745
+        ],
+        "target_auc": 0.8,
+        "meets_target": true,
+        "n_train": 47996,
+        "events_train": 102,
+        "n_test": 12000,
+        "events_test": 34,
+        "event_rate_test": 0.0028333333333333335,
+        "calibration": {
+          "slope": 1.1790036396113956,
+          "intercept": 1.1106920126396393,
+          "expected_observed": 0.7974197435491936,
+          "brier": 0.002715831744709257
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0006443850267691834,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0006675854317385173,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0007088130999637263,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0007799375145039095,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.000882731439119362,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0010061334981216758,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.0012256548280694414,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.0015870831802628712,
+            "observed": 0.0016666666666666668,
+            "n": 1200
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0024367706154952732,
+            "observed": 0.005833333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.012654464766516531,
+            "observed": 0.02,
+            "n": 1200
+          }
+        ],
+        "logistic_regression_auc": 0.9172778755493505,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 6195,
+            "events": 11,
+            "auc": 0.9445342820181113,
+            "ci": [
+              0.8941000287387291,
+              0.9826005933389735
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5805,
+            "events": 23,
+            "auc": 0.8987712992345059,
+            "ci": [
+              0.8529031977422201,
+              0.9456089274507015
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 591,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1073,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 985,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 472,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8879,
+            "events": 24,
+            "auc": 0.9061358930924148,
+            "ci": [
+              0.8422260961323023,
+              0.9523769576652374
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hf__1y": {
+      "file": "models/hf__1y.joblib",
+      "calculator": "hf",
+      "endpoint": "hf",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.8763822364912173,
+        "auc_ci": [
+          0.8567078096873867,
+          0.8936702598339397
+        ],
+        "target_auc": 0.8,
+        "meets_target": true,
+        "n_train": 45560,
+        "events_train": 1164,
+        "n_test": 11347,
+        "events_test": 313,
+        "event_rate_test": 0.0275843835374989,
+        "calibration": {
+          "slope": 1.0210693783277631,
+          "intercept": 0.10286051795573754,
+          "expected_observed": 0.9628369570922086,
+          "brier": 0.021632238851172825
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0010405939119322912,
+            "observed": 0.001762114537444934,
+            "n": 1135
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.002312639795174377,
+            "observed": 0.0,
+            "n": 1135
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.003362036949017468,
+            "observed": 0.003527336860670194,
+            "n": 1134
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.004080049537743475,
+            "observed": 0.0052863436123348016,
+            "n": 1135
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.005602322199993956,
+            "observed": 0.006167400881057269,
+            "n": 1135
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.00880782701387628,
+            "observed": 0.009700176366843033,
+            "n": 1134
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.012868384598499394,
+            "observed": 0.01762114537444934,
+            "n": 1135
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.020857168881272415,
+            "observed": 0.019400352733686066,
+            "n": 1134
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0412878472483004,
+            "observed": 0.03259911894273128,
+            "n": 1135
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.16533266695908463,
+            "observed": 0.17973568281938326,
+            "n": 1135
+          }
+        ],
+        "logistic_regression_auc": 0.8796540000382205,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5881,
+            "events": 125,
+            "auc": 0.8830277970813065,
+            "ci": [
+              0.852266079323169,
+              0.9100459086152346
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5466,
+            "events": 188,
+            "auc": 0.8689532221263696,
+            "ci": [
+              0.8467449607878261,
+              0.8964721372202488
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 570,
+            "events": 19,
+            "auc": 0.832601012513134,
+            "ci": [
+              0.7703125,
+              0.9060473102487939
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 1008,
+            "events": 44,
+            "auc": 0.9270676159939646,
+            "ci": [
+              0.8950182605536552,
+              0.9616148120571556
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 932,
+            "events": 23,
+            "auc": 0.8762137083273546,
+            "ci": [
+              0.7844011431001665,
+              0.9533411349779428
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": 12,
+            "auc": 0.932767369242779,
+            "ci": [
+              0.8720410158377448,
+              0.9746277783249615
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 8398,
+            "events": 215,
+            "auc": 0.8670238071555039,
+            "ci": [
+              0.8472052171697101,
+              0.8866731614387736
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hf__5y": {
+      "file": "models/hf__5y.joblib",
+      "calculator": "hf",
+      "endpoint": "hf",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.8450611520226756,
+        "auc_ci": [
+          0.8284611221190801,
+          0.8593565044717073
+        ],
+        "target_auc": 0.8,
+        "meets_target": true,
+        "n_train": 27331,
+        "events_train": 3245,
+        "n_test": 6903,
+        "events_test": 843,
+        "event_rate_test": 0.12212081703607128,
+        "calibration": {
+          "slope": 0.9776701171892929,
+          "intercept": -0.013036319875046568,
+          "expected_observed": 0.9867730663632914,
+          "brier": 0.07959807849368401
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.005693140993904638,
+            "observed": 0.002894356005788712,
+            "n": 691
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.01414580533511331,
+            "observed": 0.017391304347826087,
+            "n": 690
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.01966706724536793,
+            "observed": 0.02463768115942029,
+            "n": 690
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.02718303400699561,
+            "observed": 0.02753623188405797,
+            "n": 690
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.0432748578284703,
+            "observed": 0.053545586107091175,
+            "n": 691
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.06717264388941295,
+            "observed": 0.07681159420289856,
+            "n": 690
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.09709609126637049,
+            "observed": 0.0927536231884058,
+            "n": 690
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.14134700734425681,
+            "observed": 0.1463768115942029,
+            "n": 690
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.2488091836611807,
+            "observed": 0.2217391304347826,
+            "n": 690
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.5403363721583099,
+            "observed": 0.557163531114327,
+            "n": 691
+          }
+        ],
+        "logistic_regression_auc": 0.8501628632614151,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3559,
+            "events": 363,
+            "auc": 0.8442353906570541,
+            "ci": [
+              0.8250355983236766,
+              0.8626048081457789
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3344,
+            "events": 480,
+            "auc": 0.8438456558426444,
+            "ci": [
+              0.8223839203622785,
+              0.8614628844336565
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 358,
+            "events": 48,
+            "auc": 0.8597782258064516,
+            "ci": [
+              0.8019529205342063,
+              0.9061573909024889
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 630,
+            "events": 89,
+            "auc": 0.8838085941556417,
+            "ci": [
+              0.8427427164672062,
+              0.9176757789951281
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 547,
+            "events": 61,
+            "auc": 0.8844532145989341,
+            "ci": [
+              0.8343276115767629,
+              0.925940521588043
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 272,
+            "events": 33,
+            "auc": 0.8593254722961836,
+            "ci": [
+              0.8015832707822792,
+              0.9153660246958555
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 5096,
+            "events": 612,
+            "auc": 0.8332141732696647,
+            "ci": [
+              0.8176026575877533,
+              0.8509244624076981
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hfref__30d": {
+      "file": "models/hfref__30d.joblib",
+      "calculator": "hf",
+      "endpoint": "hfref",
+      "horizon": "30d",
+      "metrics": {
+        "auc": 0.8936189525279115,
+        "auc_ci": [
+          0.8208020361546087,
+          0.959335748414288
+        ],
+        "target_auc": 0.8,
+        "meets_target": true,
+        "n_train": 47992,
+        "events_train": 61,
+        "n_test": 11998,
+        "events_test": 23,
+        "event_rate_test": 0.0019169861643607267,
+        "calibration": {
+          "slope": 1.127262101063313,
+          "intercept": 0.9910777423792274,
+          "expected_observed": 0.7200687620773784,
+          "brier": 0.0018144358168954871
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.00036553509681364,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0003722319491929217,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0003872681308031541,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.00040269020072260996,
+            "observed": 0.0,
+            "n": 1199
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.00042936867525984637,
+            "observed": 0.0,
+            "n": 1200
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0004989520559883826,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.0006233652514131338,
+            "observed": 0.0025020850708924102,
+            "n": 1199
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.0008243398751948303,
+            "observed": 0.0016666666666666668,
+            "n": 1200
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0012928188420609091,
+            "observed": 0.0008333333333333334,
+            "n": 1200
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.008605602908577103,
+            "observed": 0.013333333333333334,
+            "n": 1200
+          }
+        ],
+        "logistic_regression_auc": 0.9108904420441137,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 6195,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "sex=male",
+            "n": 5803,
+            "events": 16,
+            "auc": 0.8790500259201659,
+            "ci": [
+              0.8043304416463001,
+              0.977020799538335
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 591,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1073,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 985,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 472,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8877,
+            "events": 17,
+            "auc": 0.8984928960297437,
+            "ci": [
+              0.8224371167699137,
+              0.9619771481606902
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hfref__1y": {
+      "file": "models/hfref__1y.joblib",
+      "calculator": "hf",
+      "endpoint": "hfref",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.9032687289402346,
+        "auc_ci": [
+          0.879214380185898,
+          0.9236598803797357
+        ],
+        "target_auc": 0.8,
+        "meets_target": true,
+        "n_train": 45508,
+        "events_train": 673,
+        "n_test": 11327,
+        "events_test": 177,
+        "event_rate_test": 0.015626379447338218,
+        "calibration": {
+          "slope": 1.1004264547167508,
+          "intercept": 0.3283583598891601,
+          "expected_observed": 0.971094342147895,
+          "brier": 0.012386986686103395
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.001203391552739436,
+            "observed": 0.0,
+            "n": 1133
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0014721675416643177,
+            "observed": 0.0,
+            "n": 1133
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.001832376077903457,
+            "observed": 0.0008833922261484099,
+            "n": 1132
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0023862883454613317,
+            "observed": 0.00176522506619594,
+            "n": 1133
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.003189020656290149,
+            "observed": 0.00529567519858782,
+            "n": 1133
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.004436080445169958,
+            "observed": 0.00441696113074205,
+            "n": 1132
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.0065085914879767295,
+            "observed": 0.00617828773168579,
+            "n": 1133
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.010190720196892038,
+            "observed": 0.011484098939929329,
+            "n": 1132
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.018445955570721966,
+            "observed": 0.01412180052956752,
+            "n": 1133
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.10205664178528423,
+            "observed": 0.11209179170344219,
+            "n": 1133
+          }
+        ],
+        "logistic_regression_auc": 0.9112867675001899,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5873,
+            "events": 60,
+            "auc": 0.8929525775560525,
+            "ci": [
+              0.845627010482939,
+              0.9233483942849324
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5454,
+            "events": 117,
+            "auc": 0.9041380204955248,
+            "ci": [
+              0.8720492060354258,
+              0.928290601259483
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 569,
+            "events": 13,
+            "auc": 0.8349474266740453,
+            "ci": [
+              0.7305681073245496,
+              0.9272496932524483
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 1006,
+            "events": 23,
+            "auc": 0.9542660002653811,
+            "ci": [
+              0.9235210812517463,
+              0.9878641604201643
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 931,
+            "events": 14,
+            "auc": 0.9039570026483876,
+            "ci": [
+              0.8068724833457678,
+              0.969928990605454
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8382,
+            "events": 121,
+            "auc": 0.8996699617139582,
+            "ci": [
+              0.867327233636049,
+              0.9292673926260626
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hfref__5y": {
+      "file": "models/hfref__5y.joblib",
+      "calculator": "hf",
+      "endpoint": "hfref",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.86320990666748,
+        "auc_ci": [
+          0.8444461190184192,
+          0.8816792387992236
+        ],
+        "target_auc": 0.8,
+        "meets_target": true,
+        "n_train": 26771,
+        "events_train": 1715,
+        "n_test": 6760,
+        "events_test": 455,
+        "event_rate_test": 0.0673076923076923,
+        "calibration": {
+          "slope": 1.0028062965873241,
+          "intercept": 0.031733877602783324,
+          "expected_observed": 0.9813569755146475,
+          "brier": 0.04774093207680539
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0024398331593859226,
+            "observed": 0.0029585798816568047,
+            "n": 676
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.005850286479130364,
+            "observed": 0.0029585798816568047,
+            "n": 676
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.008605775483468579,
+            "observed": 0.010355029585798817,
+            "n": 676
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.012525674479092355,
+            "observed": 0.014792899408284023,
+            "n": 676
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.019499988893709772,
+            "observed": 0.014792899408284023,
+            "n": 676
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.02874620662719546,
+            "observed": 0.03550295857988166,
+            "n": 676
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.039807798981018244,
+            "observed": 0.05029585798816568,
+            "n": 676
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.06367059401390641,
+            "observed": 0.060650887573964495,
+            "n": 676
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.12099747284566664,
+            "observed": 0.11094674556213018,
+            "n": 676
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.35838510255690054,
+            "observed": 0.3698224852071006,
+            "n": 676
+          }
+        ],
+        "logistic_regression_auc": 0.8710473982797536,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3486,
+            "events": 169,
+            "auc": 0.8448837171965116,
+            "ci": [
+              0.8151044135805897,
+              0.8718988338041385
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3274,
+            "events": 286,
+            "auc": 0.8690063283436777,
+            "ci": [
+              0.849320524687515,
+              0.889100712205888
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 351,
+            "events": 33,
+            "auc": 0.875833809796074,
+            "ci": [
+              0.8279023406421206,
+              0.9234783196970731
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 611,
+            "events": 46,
+            "auc": 0.884128510965756,
+            "ci": [
+              0.8380699526754853,
+              0.9324683812095851
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 535,
+            "events": 35,
+            "auc": 0.9144285714285714,
+            "ci": [
+              0.8567954634970211,
+              0.9556496487207675
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 267,
+            "events": 14,
+            "auc": 0.8613777526821005,
+            "ci": [
+              0.7455956994477219,
+              0.9462578542780749
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 4996,
+            "events": 327,
+            "auc": 0.8529739062316809,
+            "ci": [
+              0.8318125179789746,
+              0.8783935687719342
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hfpef__1y": {
+      "file": "models/hfpef__1y.joblib",
+      "calculator": "hf",
+      "endpoint": "hfpef",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.7931651755757151,
+        "auc_ci": [
+          0.7443654262687215,
+          0.834286706880098
+        ],
+        "target_auc": 0.8,
+        "meets_target": false,
+        "n_train": 45496,
+        "events_train": 350,
+        "n_test": 11325,
+        "events_test": 91,
+        "event_rate_test": 0.008035320088300222,
+        "calibration": {
+          "slope": 1.0916343028989306,
+          "intercept": 0.42621820284963813,
+          "expected_observed": 0.9683133346324089,
+          "brier": 0.007843892628411814
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0017027568768108728,
+            "observed": 0.00088261253309797,
+            "n": 1133
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.002000258595652965,
+            "observed": 0.00265017667844523,
+            "n": 1132
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.002358086716849018,
+            "observed": 0.00088261253309797,
+            "n": 1133
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0031101445867998336,
+            "observed": 0.0017667844522968198,
+            "n": 1132
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.0040035530925520545,
+            "observed": 0.00529567519858782,
+            "n": 1133
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.004884592759993663,
+            "observed": 0.00441696113074205,
+            "n": 1132
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.006101574523899538,
+            "observed": 0.00441696113074205,
+            "n": 1132
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.008287080308270396,
+            "observed": 0.00706090026478376,
+            "n": 1133
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.012849698652033377,
+            "observed": 0.01678445229681979,
+            "n": 1132
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.03250054137228179,
+            "observed": 0.03618711385701677,
+            "n": 1133
+          }
+        ],
+        "logistic_regression_auc": 0.7988993381551687,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5874,
+            "events": 49,
+            "auc": 0.8271209599719715,
+            "ci": [
+              0.7569119308682324,
+              0.8756780698081554
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5451,
+            "events": 42,
+            "auc": 0.751384377008337,
+            "ci": [
+              0.6660537331564013,
+              0.8153891487732716
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 570,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1006,
+            "events": 11,
+            "auc": 0.8293284604842394,
+            "ci": [
+              0.7157057815227229,
+              0.9167445663617276
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 931,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8379,
+            "events": 64,
+            "auc": 0.7720929795550211,
+            "ci": [
+              0.7201118722493314,
+              0.8308946540222182
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "hfpef__5y": {
+      "file": "models/hfpef__5y.joblib",
+      "calculator": "hf",
+      "endpoint": "hfpef",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.7768068984045498,
+        "auc_ci": [
+          0.7513283303641302,
+          0.8045311750601529
+        ],
+        "target_auc": 0.8,
+        "meets_target": false,
+        "n_train": 26522,
+        "events_train": 1117,
+        "n_test": 6703,
+        "events_test": 289,
+        "event_rate_test": 0.04311502312397434,
+        "calibration": {
+          "slope": 0.9749951733178732,
+          "intercept": -0.0497637491473706,
+          "expected_observed": 0.9849709443242641,
+          "brier": 0.03936896326830292
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.004092214541634209,
+            "observed": 0.0029806259314456036,
+            "n": 671
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0066291957098145735,
+            "observed": 0.007462686567164179,
+            "n": 670
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.009041139159914502,
+            "observed": 0.011940298507462687,
+            "n": 670
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.013768654702362708,
+            "observed": 0.013432835820895522,
+            "n": 670
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.019849027766807425,
+            "observed": 0.014903129657228018,
+            "n": 671
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.028655159557425494,
+            "observed": 0.03582089552238806,
+            "n": 670
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.043300710496682465,
+            "observed": 0.04029850746268657,
+            "n": 670
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.06277457585995237,
+            "observed": 0.06567164179104477,
+            "n": 670
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.0897874932560014,
+            "observed": 0.09253731343283582,
+            "n": 670
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.14670773034799572,
+            "observed": 0.14605067064083457,
+            "n": 671
+          }
+        ],
+        "logistic_regression_auc": 0.7860923822563748,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3479,
+            "events": 154,
+            "auc": 0.8156517918172054,
+            "ci": [
+              0.7831165972782687,
+              0.8502467652215975
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3224,
+            "events": 135,
+            "auc": 0.7333537162931789,
+            "ci": [
+              0.6978740448360743,
+              0.7713649935070792
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 347,
+            "events": 13,
+            "auc": 0.7771764163979733,
+            "ci": [
+              0.6414787581699346,
+              0.8804598065853919
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 608,
+            "events": 26,
+            "auc": 0.8227927570711077,
+            "ci": [
+              0.7558964447179445,
+              0.8956774753974313
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 532,
+            "events": 15,
+            "auc": 0.8235332043842681,
+            "ci": [
+              0.744797023344461,
+              0.8902020526245581
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 271,
+            "events": 18,
+            "auc": 0.78645147123408,
+            "ci": [
+              0.6571043767507003,
+              0.8833504479377957
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 4945,
+            "events": 217,
+            "auc": 0.7674589853953699,
+            "ci": [
+              0.7352966446714662,
+              0.795445871495537
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "scd__1y": {
+      "file": "models/scd__1y.joblib",
+      "calculator": "scd",
+      "endpoint": "scd",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.8406072872936043,
+        "auc_ci": [
+          0.7739151824754668,
+          0.8893825952480672
+        ],
+        "target_auc": 0.78,
+        "meets_target": false,
+        "n_train": 45567,
+        "events_train": 176,
+        "n_test": 11345,
+        "events_test": 46,
+        "event_rate_test": 0.004054649625385633,
+        "calibration": {
+          "slope": 1.1497248176627726,
+          "intercept": 0.7160370823119367,
+          "expected_observed": 0.9900890094160881,
+          "brier": 0.0039043869634362853
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0010970721168220652,
+            "observed": 0.0,
+            "n": 1135
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0013242044582268651,
+            "observed": 0.0,
+            "n": 1134
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0015131055748451609,
+            "observed": 0.000881057268722467,
+            "n": 1135
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.001727869476833778,
+            "observed": 0.001763668430335097,
+            "n": 1134
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.0019799828944246814,
+            "observed": 0.0,
+            "n": 1135
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.002281786638114299,
+            "observed": 0.003527336860670194,
+            "n": 1134
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.0027161154763179836,
+            "observed": 0.001763668430335097,
+            "n": 1134
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.0033975478275047647,
+            "observed": 0.0052863436123348016,
+            "n": 1135
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.004952480327396834,
+            "observed": 0.003527336860670194,
+            "n": 1134
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.01914824656591616,
+            "observed": 0.02378854625550661,
+            "n": 1135
+          }
+        ],
+        "logistic_regression_auc": 0.8615922147785298,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5879,
+            "events": 20,
+            "auc": 0.8702082266598395,
+            "ci": [
+              0.8010434426930857,
+              0.9289828453386024
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5466,
+            "events": 26,
+            "auc": 0.8135605203619909,
+            "ci": [
+              0.7222844250551868,
+              0.8910070710661043
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 569,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1009,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 933,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 439,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8395,
+            "events": 29,
+            "auc": 0.8144748448152209,
+            "ci": [
+              0.7325405763846141,
+              0.8981272820382424
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "scd__5y": {
+      "file": "models/scd__5y.joblib",
+      "calculator": "scd",
+      "endpoint": "scd",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.7817637491105012,
+        "auc_ci": [
+          0.7448795649978172,
+          0.8240934638368415
+        ],
+        "target_auc": 0.78,
+        "meets_target": false,
+        "n_train": 26538,
+        "events_train": 597,
+        "n_test": 6708,
+        "events_test": 150,
+        "event_rate_test": 0.022361359570661897,
+        "calibration": {
+          "slope": 0.9622536648795678,
+          "intercept": -0.14051526455407015,
+          "expected_observed": 1.01883953369246,
+          "brier": 0.020126262754105475
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.00317159481793408,
+            "observed": 0.004470938897168405,
+            "n": 671
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.006330258830846549,
+            "observed": 0.004470938897168405,
+            "n": 671
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.007874083574963648,
+            "observed": 0.004470938897168405,
+            "n": 671
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.009164869734516665,
+            "observed": 0.011940298507462687,
+            "n": 670
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.010706052994722628,
+            "observed": 0.014903129657228018,
+            "n": 671
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.012945943297986994,
+            "observed": 0.011922503725782414,
+            "n": 671
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.01582871496585102,
+            "observed": 0.01791044776119403,
+            "n": 670
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.020483761576531027,
+            "observed": 0.01639344262295082,
+            "n": 671
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.029537688929499286,
+            "observed": 0.03129657228017884,
+            "n": 671
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.11175274459841389,
+            "observed": 0.10581222056631892,
+            "n": 671
+          }
+        ],
+        "logistic_regression_auc": 0.7890454406831352,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3466,
+            "events": 52,
+            "auc": 0.757491775945203,
+            "ci": [
+              0.6874118455405382,
+              0.8246497294223232
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3242,
+            "events": 98,
+            "auc": 0.7750947707327206,
+            "ci": [
+              0.7203801746974081,
+              0.8319333157610543
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 343,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 616,
+            "events": 28,
+            "auc": 0.8094630709426628,
+            "ci": [
+              0.7053955403326134,
+              0.8837849792391897
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 536,
+            "events": 15,
+            "auc": 0.8170185540627,
+            "ci": [
+              0.7063345132895802,
+              0.926691039410616
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 267,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 4946,
+            "events": 97,
+            "auc": 0.7748988525639252,
+            "ci": [
+              0.7158549590126497,
+              0.8246106034335399
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "af__30d": {
+      "file": "models/af__30d.joblib",
+      "calculator": "af",
+      "endpoint": "af",
+      "horizon": "30d",
+      "metrics": {
+        "auc": 0.7569303715250713,
+        "auc_ci": [
+          0.6280690016318614,
+          0.8769553177415634
+        ],
+        "target_auc": 0.8,
+        "meets_target": false,
+        "n_train": 46239,
+        "events_train": 108,
+        "n_test": 11567,
+        "events_test": 20,
+        "event_rate_test": 0.0017290567995158642,
+        "calibration": {
+          "slope": 1.028254842287011,
+          "intercept": -0.1590824501178016,
+          "expected_observed": 1.3432188120925843,
+          "brier": 0.0017193610076835942
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0008198144208212783,
+            "observed": 0.0,
+            "n": 1157
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0008231467307477521,
+            "observed": 0.001728608470181504,
+            "n": 1157
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0008481595288947326,
+            "observed": 0.0008650519031141869,
+            "n": 1156
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.0008908361324784722,
+            "observed": 0.000864304235090752,
+            "n": 1157
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.0010969243459301853,
+            "observed": 0.000864304235090752,
+            "n": 1157
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.0015411238091597127,
+            "observed": 0.0,
+            "n": 1156
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.0021127940150000198,
+            "observed": 0.0,
+            "n": 1157
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.002768628850666723,
+            "observed": 0.0017301038062283738,
+            "n": 1156
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.003898939496533921,
+            "observed": 0.0025929127052722557,
+            "n": 1157
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.008423084834019932,
+            "observed": 0.00864304235090752,
+            "n": 1157
+          }
+        ],
+        "logistic_regression_auc": 0.7905040270200052,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5976,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "sex=male",
+            "n": 5591,
+            "events": 11,
+            "auc": 0.8487129358097101,
+            "ci": [
+              0.7197329201684387,
+              0.9559276607014087
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 575,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 1022,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=hispanic",
+            "n": 947,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=other",
+            "n": 461,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8562,
+            "events": 17,
+            "auc": 0.7447113895294806,
+            "ci": [
+              0.5986208393408726,
+              0.896507723627397
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "af__1y": {
+      "file": "models/af__1y.joblib",
+      "calculator": "af",
+      "endpoint": "af",
+      "horizon": "1y",
+      "metrics": {
+        "auc": 0.8154980047622126,
+        "auc_ci": [
+          0.7886016843757874,
+          0.8371384254490388
+        ],
+        "target_auc": 0.8,
+        "meets_target": false,
+        "n_train": 43816,
+        "events_train": 1163,
+        "n_test": 10925,
+        "events_test": 297,
+        "event_rate_test": 0.027185354691075515,
+        "calibration": {
+          "slope": 1.0686215417568121,
+          "intercept": 0.21775527549285284,
+          "expected_observed": 0.9853596587882698,
+          "brier": 0.02448892890534376
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.0018506184923637193,
+            "observed": 0.0,
+            "n": 1093
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.0029433258176235723,
+            "observed": 0.004578754578754579,
+            "n": 1092
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.0042564273502834595,
+            "observed": 0.009149130832570906,
+            "n": 1093
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.008025547428677846,
+            "observed": 0.00641025641025641,
+            "n": 1092
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.012431460197407838,
+            "observed": 0.010064043915827997,
+            "n": 1093
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.01644730864745284,
+            "observed": 0.015567765567765568,
+            "n": 1092
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.021326531658002672,
+            "observed": 0.019230769230769232,
+            "n": 1092
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.0323781007609854,
+            "observed": 0.026532479414455627,
+            "n": 1093
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.050440602256882905,
+            "observed": 0.048534798534798536,
+            "n": 1092
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.11774179923471571,
+            "observed": 0.13174748398902103,
+            "n": 1093
+          }
+        ],
+        "logistic_regression_auc": 0.8225252145086545,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 5669,
+            "events": 120,
+            "auc": 0.7964783444464467,
+            "ci": [
+              0.7600522247671538,
+              0.8407958919037837
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 5256,
+            "events": 177,
+            "auc": 0.8243643094474533,
+            "ci": [
+              0.7970978423794225,
+              0.8512241183448117
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 551,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=black",
+            "n": 960,
+            "events": 22,
+            "auc": 0.8554225625121148,
+            "ci": [
+              0.7729166826667077,
+              0.9253393954799779
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 896,
+            "events": 21,
+            "auc": 0.8347755102040817,
+            "ci": [
+              0.755189317826703,
+              0.889450577677618
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 427,
+            "events": "<11",
+            "auc": null,
+            "note": "too few events for a stable estimate"
+          },
+          {
+            "group": "race=white",
+            "n": 8091,
+            "events": 235,
+            "auc": 0.8110770464098452,
+            "ci": [
+              0.780472301780315,
+              0.8356904738751012
+            ]
+          }
+        ],
+        "equation_comparison": null
+      }
+    },
+    "af__5y": {
+      "file": "models/af__5y.joblib",
+      "calculator": "af",
+      "endpoint": "af",
+      "horizon": "5y",
+      "metrics": {
+        "auc": 0.8010332517440306,
+        "auc_ci": [
+          0.7895296308199853,
+          0.8171774097948433
+        ],
+        "target_auc": 0.8,
+        "meets_target": false,
+        "n_train": 26372,
+        "events_train": 3703,
+        "n_test": 6677,
+        "events_test": 959,
+        "event_rate_test": 0.1436273775647746,
+        "calibration": {
+          "slope": 1.0156792960516263,
+          "intercept": 0.04478769268702367,
+          "expected_observed": 0.9837248071546926,
+          "brier": 0.10191277495786623
+        },
+        "deciles": [
+          {
+            "decile": 1,
+            "mean_predicted": 0.013407440506594119,
+            "observed": 0.014970059880239521,
+            "n": 668
+          },
+          {
+            "decile": 2,
+            "mean_predicted": 0.023147380313674873,
+            "observed": 0.025449101796407185,
+            "n": 668
+          },
+          {
+            "decile": 3,
+            "mean_predicted": 0.03447493403753285,
+            "observed": 0.04047976011994003,
+            "n": 667
+          },
+          {
+            "decile": 4,
+            "mean_predicted": 0.04989987148947158,
+            "observed": 0.059880239520958084,
+            "n": 668
+          },
+          {
+            "decile": 5,
+            "mean_predicted": 0.0722345465970121,
+            "observed": 0.05688622754491018,
+            "n": 668
+          },
+          {
+            "decile": 6,
+            "mean_predicted": 0.10503974633115586,
+            "observed": 0.11694152923538231,
+            "n": 667
+          },
+          {
+            "decile": 7,
+            "mean_predicted": 0.15118636241327926,
+            "observed": 0.12724550898203593,
+            "n": 668
+          },
+          {
+            "decile": 8,
+            "mean_predicted": 0.20691596117818906,
+            "observed": 0.20839580209895053,
+            "n": 667
+          },
+          {
+            "decile": 9,
+            "mean_predicted": 0.295443927011062,
+            "observed": 0.30538922155688625,
+            "n": 668
+          },
+          {
+            "decile": 10,
+            "mean_predicted": 0.4610320467431316,
+            "observed": 0.4805389221556886,
+            "n": 668
+          }
+        ],
+        "logistic_regression_auc": 0.8044951438499284,
+        "subgroups": [
+          {
+            "group": "sex=female",
+            "n": 3454,
+            "events": 426,
+            "auc": 0.7924620598979168,
+            "ci": [
+              0.7753030975740914,
+              0.8121987798603555
+            ]
+          },
+          {
+            "group": "sex=male",
+            "n": 3223,
+            "events": 533,
+            "auc": 0.8037886132364326,
+            "ci": [
+              0.7861978513343425,
+              0.8241702621663595
+            ]
+          },
+          {
+            "group": "race=asian",
+            "n": 343,
+            "events": 38,
+            "auc": 0.8331320103537532,
+            "ci": [
+              0.7780025593299209,
+              0.8932580420198191
+            ]
+          },
+          {
+            "group": "race=black",
+            "n": 599,
+            "events": 79,
+            "auc": 0.78230282375852,
+            "ci": [
+              0.7101834129108592,
+              0.8339986588906934
+            ]
+          },
+          {
+            "group": "race=hispanic",
+            "n": 524,
+            "events": 59,
+            "auc": 0.8189721159103335,
+            "ci": [
+              0.7609176581340383,
+              0.8823288829258562
+            ]
+          },
+          {
+            "group": "race=other",
+            "n": 272,
+            "events": 30,
+            "auc": 0.7181818181818181,
+            "ci": [
+              0.6088912393708676,
+              0.8153459489531327
+            ]
+          },
+          {
+            "group": "race=white",
+            "n": 4939,
+            "events": 753,
+            "auc": 0.8020556728334314,
+            "ci": [
+              0.7880064222785614,
+              0.815431403837072
+            ]
+          }
+        ],
+        "equation_comparison": {
+          "equation": "CHARGE-AF (simple model)",
+          "n": 4902,
+          "equation_auc": 0.7644384934424727,
+          "ai_auc_same_patients": 0.7713830025173339
+        }
+      }
+    }
+  },
+  "skipped": [
+    {
+      "model": "any_stroke__30d",
+      "reason": "insufficient events (train 52, test <11)"
+    },
+    {
+      "model": "ischemic_stroke__30d",
+      "reason": "insufficient events (train 41, test <11)"
+    },
+    {
+      "model": "hemorrhagic_stroke__30d",
+      "reason": "insufficient events (train <11, test <11)"
+    },
+    {
+      "model": "hemorrhagic_stroke__1y",
+      "reason": "insufficient events (train 28, test <11)"
+    },
+    {
+      "model": "tia__30d",
+      "reason": "insufficient events (train <11, test <11)"
+    },
+    {
+      "model": "hfpef__30d",
+      "reason": "insufficient events (train 27, test <11)"
+    },
+    {
+      "model": "scd__30d",
+      "reason": "insufficient events (train 14, test <11)"
+    }
+  ]
+}

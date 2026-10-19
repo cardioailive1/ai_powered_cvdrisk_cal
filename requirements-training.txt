@@ -1,0 +1,4 @@
+# Install in your Mayo Clinic Platform_Discover workspace
+-r requirements.txt
+pyarrow>=17
+google-cloud-bigquery[pandas]>=3.25

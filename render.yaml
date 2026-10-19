@@ -1,0 +1,44 @@
+# Render Blueprint — New + > Blueprint > connect this repo.
+services:
+  - type: web
+    name: cardioai-cvd-risk
+    runtime: python
+    plan: starter
+    region: ohio
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: APP_ENV
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cardioai-db
+          property: connectionString
+      - key: ADMIN_USERNAME
+        sync: false          # set in the Render dashboard
+      - key: ADMIN_PASSWORD
+        sync: false          # set in the Render dashboard (12+ chars)
+      # Model bundle: either commit it under models/ and point MODEL_DIR there,
+      # or host the .tar.gz privately and set MODEL_BUNDLE_URL (+ token).
+      - key: MODEL_DIR
+        value: models/synthetic-demo
+      - key: MODEL_BUNDLE_URL
+        sync: false
+      - key: MODEL_BUNDLE_TOKEN
+        sync: false
+      - key: ALLOW_DEMO_MODELS
+        value: "true"        # set to "false" once the Mayo-trained bundle is live
+      - key: STORE_ASSESSMENTS
+        value: "true"
+
+databases:
+  - name: cardioai-db
+    plan: basic-256mb
+    region: ohio
+    databaseName: cardioai
+    user: cardioai

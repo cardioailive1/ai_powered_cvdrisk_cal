@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CardioAI Curation Workbench</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>">
+  <link rel="stylesheet" href="static-base.css">
+  <link rel="stylesheet" href="static/curation.css">
+</head>
+<body>
+  <div id="login-screen" class="login-screen">
+    <div class="login-box">
+      <div class="login-logo">🩺</div>
+      <h2 class="login-title">Curation Workbench</h2>
+      <p class="login-subtitle">Label review &amp; cardiologist adjudication · Mayo Clinic Platform workspace</p>
+      <div id="error-message" class="error-message"></div>
+      <form class="login-form" id="login-form">
+        <div class="form-group"><label class="form-label" for="username">Username</label>
+          <input type="text" id="username" class="form-input" autocomplete="username" required></div>
+        <div class="form-group"><label class="form-label" for="password">Password</label>
+          <input type="password" id="password" class="form-input" autocomplete="current-password" required></div>
+        <button type="submit" class="login-btn" id="login-btn">Sign in</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
+    <nav class="topbar">
+      <div class="brand">🩺 <span>CardioAI</span> Curation</div>
+      <div class="nav-links" id="nav"></div>
+      <div class="who"><span id="who"></span><button class="btn-ghost" id="logout">Sign out</button></div>
+    </nav>
+    <div id="sim-banner" class="demo-banner hidden"></div>
+    <main class="container wb" id="view"></main>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+  <script src="static/curation.js"></script>
+</body>
+</html>
