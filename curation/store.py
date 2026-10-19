@@ -32,6 +32,7 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(160), default="")
+    email: Mapped[str] = mapped_column(String(200), default="")
     role: Mapped[str] = mapped_column(String(30))
     password_hash: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -172,7 +173,24 @@ def open_store(data_dir: str | Path) -> sessionmaker:
     p = Path(data_dir) / "curation.db"
     engine = create_engine(f"sqlite:///{p}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
+    with engine.begin() as con:   # add columns introduced after a database was created
+        cols = {r[1] for r in con.exec_driver_sql("PRAGMA table_info(users)")}
+        if "email" not in cols:
+            con.exec_driver_sql("ALTER TABLE users ADD COLUMN email VARCHAR(200) DEFAULT ''")
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def check_reader_policy(db: Session, gov: dict, role: str, email: str) -> None:
+    """Raise ValueError if creating a user with this role/e-mail breaks the platform's reader rules."""
+    pol = gov.get("reader_policy", {})
+    dom = pol.get("email_domain")
+    if dom and role in pol.get("domain_roles", []):
+        if not email or not email.lower().endswith("@" + dom.lower()):
+            raise ValueError(f"{role} accounts need an @{dom} e-mail (Mayo Clinic Platform workspace seats require it)")
+    if role in ("cardiologist", "lead_cardiologist"):
+        n = len(list(db.scalars(select(User).where(User.active, User.role.in_(["cardiologist", "lead_cardiologist"])))))
+        if n >= pol.get("max_reader_seats", 10**6):
+            raise ValueError(f"All {pol['max_reader_seats']} annotator seats are in use; deactivate a reader or request more seats")
 
 
 def active_run(db: Session) -> LabelRun | None:

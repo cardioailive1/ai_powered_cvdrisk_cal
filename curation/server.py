@@ -27,9 +27,10 @@ from cardioai_core.security import hash_password, make_token, read_token, verify
 
 from . import actions, gates as gates_mod, governance
 from .adjudication import AdjudicationError, queue_for, reader_view, submit_read
+from .pipeline import plan_workload
 from .release import ReleaseError, build_release
 from .runs import current, get_run_data, latest_audit
-from .store import ROLES, Case, LogEntry, Release, User, log_event, open_store, verify_log
+from .store import ROLES, Case, LogEntry, Release, User, check_reader_policy, log_event, open_store, verify_log
 
 STATIC = Path(__file__).parent / "static"
 APP_CSS = Path(__file__).resolve().parents[1] / "app" / "static" / "styles.css"
@@ -60,6 +61,7 @@ class WaiveIn(BaseModel):
 class UserIn(BaseModel):
     username: str = Field(min_length=3, max_length=80)
     full_name: str = ""
+    email: str = ""
     role: str
     password: str = Field(min_length=12, max_length=200)
 
@@ -160,7 +162,8 @@ def create_app(data_dir: str) -> FastAPI:
             "audit": None if not ar else {"id": ar.id, "overall": ar.overall, "counts": ar.report["counts"], "created_at": ar.created_at.isoformat()},
             "approvals": approvals, "metrics": m, "gates": g, "releasable": gates_mod.releasable(g),
             "ready_for_signoff": gates_mod.ready_for_signoff(g), "releases": rels,
-            "governance": {k: gov[k] for k in ("gates", "sampling", "definitions", "label_thresholds", "provenance")},
+            "governance": {k: gov[k] for k in ("gates", "sampling", "definitions", "label_thresholds", "provenance", "reader_policy")},
+            "workload": plan_workload(run.summary, gov, max(1, len([u for u in s.scalars(select(User)) if u.active and u.role == "cardiologist"]))),
         })
 
     @app.get("/api/audit")
@@ -236,7 +239,11 @@ def create_app(data_dir: str) -> FastAPI:
     @app.get("/api/users")
     def users(u: User = Depends(user), s=Depends(db)):
         need(u, "admin")
-        return [{"id": x.id, "username": x.username, "full_name": x.full_name, "role": x.role, "active": x.active} for x in s.scalars(select(User))]
+        pol = governance.load(data_dir)["reader_policy"]
+        users = [{"id": x.id, "username": x.username, "full_name": x.full_name, "email": x.email, "role": x.role, "active": x.active}
+                 for x in s.scalars(select(User))]
+        used = sum(1 for x in users if x["active"] and x["role"] in ("cardiologist", "lead_cardiologist"))
+        return {"users": users, "seats_used": used, "seats_available": pol["max_reader_seats"], "email_domain": pol["email_domain"]}
 
     @app.post("/api/users", status_code=201)
     def add_user(body: UserIn, u: User = Depends(user), s=Depends(db)):
@@ -245,7 +252,12 @@ def create_app(data_dir: str) -> FastAPI:
             raise HTTPException(422, f"role must be one of {ROLES}")
         if s.scalar(select(User).where(User.username == body.username)):
             raise HTTPException(409, "Username exists")
-        s.add(User(username=body.username, full_name=body.full_name, role=body.role, password_hash=hash_password(body.password)))
+        try:
+            check_reader_policy(s, governance.load(data_dir), body.role, body.email)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        s.add(User(username=body.username, full_name=body.full_name, email=body.email, role=body.role,
+                   password_hash=hash_password(body.password)))
         log_event(s, u.username, "user.created", body.username, {"role": body.role})
         s.commit()
         return {"ok": True}

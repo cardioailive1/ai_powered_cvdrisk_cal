@@ -26,6 +26,16 @@ DEFAULTS: dict = {
         "min_annotation_accuracy": 0.90,
         "max_indeterminate_fraction": 0.15,
     },
+    # Mayo Clinic Platform (A. Resnick, 14 Oct 2026): up to 5 additional annotator seats, each needing a
+    # cardioailive.com e-mail; Mayo Clinic staff cannot annotate in this environment (readers must be external).
+    "reader_policy": {
+        "email_domain": "cardioailive.com",
+        "domain_roles": ["cardiologist", "lead_cardiologist"],
+        "max_reader_seats": 5,
+        "minutes_per_event_case": 4,
+        "minutes_per_annotation_case": 1,
+        "expected_disagreement_rate": 0.15,
+    },
     "definitions": {
         "ami_include_type2": False,          # type 2 MI is not counted as an AMI endpoint event
         "af_exclude_postoperative": True,    # post-operative AF is not counted as new-onset AF

@@ -1,0 +1,23 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-java@v4       # for the Spark SQL round-trip test
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install
+        run: |
+          pip install -r requirements-training.txt pytest "pyspark==3.5.3"
+      - name: Test
+        run: pytest -q

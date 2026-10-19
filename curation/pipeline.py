@@ -79,10 +79,12 @@ def cmd_user_add(a):
     db = _db(a.data_dir)
     if db.scalar(select(User).where(User.username == a.username)):
         sys.exit("User exists")
+    from .store import check_reader_policy
+    check_reader_policy(db, governance.load(a.data_dir), a.role, a.email or "")
     pw = a.password or os.environ.get("NEW_USER_PASSWORD") or getpass.getpass("New password (12+ chars): ")
     if len(pw) < 12:
         sys.exit("Password must be at least 12 characters")
-    db.add(User(username=a.username, full_name=a.full_name or "", role=a.role, password_hash=hash_password(pw)))
+    db.add(User(username=a.username, full_name=a.full_name or "", email=a.email or "", role=a.role, password_hash=hash_password(pw)))
     from .store import log_event
     log_event(db, _sysuser(), "user.created", a.username, {"role": a.role})
     db.commit()
@@ -142,6 +144,46 @@ def cmd_release(a):
     rel = build_release(db, a.data_dir, _run(db), _login(db, a.as_user))
     print(f"Release {rel.id} written to {rel.path}\n  dataset sha256 {rel.dataset_sha}\n"
           f"Next: python -m training.train --release {rel.path} --out bundles/<name>")
+
+
+def plan_workload(summary: dict, gov: dict, readers: int) -> dict:
+    """Expected adjudication workload for a label run (before or after approval)."""
+    S, P = gov["sampling"], gov["reader_policy"]
+    rel = summary.get("relevant_auto", {})
+    fam_rows, cases = {}, 0
+    for fam, a in rel.items():
+        n = (min(S["max_uncertain_per_family"], a.get("uncertain", 0)) + min(S["audit_sample_per_stratum"], a.get("confirmed", 0))
+             + min(S["audit_sample_per_stratum"], a.get("rejected", 0)))
+        fam_rows[fam] = n
+        cases += n
+    double = S["double_read_fraction"] if readers >= 2 else 0.0
+    ind_reads = cases * (1 + double)
+    lead_reads = cases * double * P["expected_disagreement_rate"]
+    ann = S["annotation_sample"]
+    per_reader = (ind_reads + ann) / max(readers, 1)
+    hours = (per_reader - ann / max(readers, 1)) * P["minutes_per_event_case"] / 60 + (ann / max(readers, 1)) * P["minutes_per_annotation_case"] / 60
+    return {"event_cases_by_family": fam_rows, "event_cases": cases, "independent_reads": round(ind_reads),
+            "annotation_reads": ann, "expected_lead_reads": round(lead_reads), "readers": readers,
+            "reads_per_reader": round(per_reader), "hours_per_reader": round(hours, 1),
+            "lead_hours": round(lead_reads * P["minutes_per_event_case"] * 1.5 / 60, 1),
+            "seats_needed": readers + 1, "seats_available": P["max_reader_seats"],
+            "assumptions": f"{P['minutes_per_event_case']} min/event case, {P['minutes_per_annotation_case']} min/report, "
+                           f"{P['expected_disagreement_rate']:.0%} of double reads disagree, lead case 1.5x longer"}
+
+
+def cmd_workload(a):
+    db = _db(a.data_dir)
+    gov = governance.load(a.data_dir)
+    run = _run(db)
+    max_r = gov["reader_policy"]["max_reader_seats"] - 1          # one seat for the lead cardiologist
+    for r in sorted({2, 3, max_r} | ({a.readers} if a.readers else set())):
+        if r < 1:
+            continue
+        w = plan_workload(run.summary, gov, r)
+        print(f"{r} independent readers + 1 lead ({w['seats_needed']}/{w['seats_available']} seats): "
+              f"{w['event_cases']} event cases, {w['reads_per_reader']} reads ≈ {w['hours_per_reader']} h each; "
+              f"lead ≈ {w['expected_lead_reads']} cases ≈ {w['lead_hours']} h")
+    print("Assumptions:", w["assumptions"], "| by family:", w["event_cases_by_family"])
 
 
 def cmd_verify(a):
@@ -205,6 +247,7 @@ def main():
     p.add_argument("username")
     p.add_argument("--role", required=True)
     p.add_argument("--full-name")
+    p.add_argument("--email", help="required for cardiologists: must be an @cardioailive.com workspace account")
     p.add_argument("--password", help="avoid on shared machines; prefer the prompt or $NEW_USER_PASSWORD")
     p.set_defaults(fn=cmd_user_add)
     p = sub.add_parser("label")
@@ -212,6 +255,9 @@ def main():
     p.set_defaults(fn=cmd_label)
     sub.add_parser("audit").set_defaults(fn=cmd_audit)
     sub.add_parser("status").set_defaults(fn=cmd_status)
+    p = sub.add_parser("plan-workload", help="estimate reads and hours per cardiologist for the active label run")
+    p.add_argument("--readers", type=int)
+    p.set_defaults(fn=cmd_workload)
     p = sub.add_parser("review")
     p.add_argument("--as", dest="as_user", required=True)
     p.add_argument("--check", required=True)

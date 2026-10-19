@@ -1,4 +1,5 @@
 # Install in your Mayo Clinic Platform_Discover workspace
 -r requirements.txt
 pyarrow>=17
-google-cloud-bigquery[pandas]>=3.25
+# pyspark is provided by the workspace's Spark runtime (data is queried with Spark SQL).
+# Only install it yourself for local testing:  pip install "pyspark>=3.3"

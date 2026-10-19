@@ -1,0 +1,8 @@
+{
+  "echo": {
+    "patient_column": "PATIENT_CLINIC_NUMBER",
+    "date_column": "<echo date/time column — confirm with Mayo Clinic Platform>",
+    "id_column": "<unique echo id column, optional>",
+    "person_bridge": "person_source_value"
+  }
+}
