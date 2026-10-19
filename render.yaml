@@ -13,7 +13,7 @@ services:
       maxInstances: 3
       targetCPUPercent: 70
       targetMemoryPercent: 80
-    autoDeployTrigger: checksPass    # deploy only when the GitHub Actions test workflow passes
+    autoDeployTrigger: commit        # switch to checksPass once the GitHub Actions "tests" workflow runs on this repo
     buildCommand: pip install -r requirements.txt
     startCommand: >-
       uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
