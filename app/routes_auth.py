@@ -67,8 +67,10 @@ def rotate_to_full_if_ready(db: Session, ctx: Ctx, request: Request, response: R
 
 # ------------------------------------------------------------------ public configuration for the sign-in page
 @router.get("/auth/config")
-def auth_config():
+def auth_config(db: Session = Depends(get_db)):
+    has_admin = db.scalar(select(User.id).where(User.role == "admin", User.status == "active").limit(1)) is not None
     return {
+        "admin_configured": has_admin,
         "signup_mode": settings.signup_mode, "allowed_domains": settings.signup_allowed_domains,
         "password_min_length": settings.password_min_length, "require_mfa": settings.require_mfa,
         "idle_minutes": settings.session_idle_minutes, "terms_version": TERMS_VERSION,

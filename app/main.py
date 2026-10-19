@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import datetime as dt
+import hmac
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,7 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cardioai_core.bundle import ModelBundle, load_bundle, nan_to_none
@@ -25,9 +27,9 @@ from cardioai_core.equations import run_equations
 from cardioai_core.schema import CALCULATORS, FIELDS, HORIZONS, SECTIONS, validate_input
 
 from . import audit, recommendations, routes_admin, routes_auth
-from .auth import Ctx, hash_password, require
+from .auth import Ctx, hash_password, require, revoke_user_sessions
 from .config import settings
-from .db import Assessment, SessionLocal, User, get_db, init_db, utcnow
+from .db import Assessment, AuditEvent, SessionLocal, User, engine, get_db, init_db, utcnow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("cardioai")
@@ -54,29 +56,78 @@ def _fetch_bundle(url: str, dest: Path) -> None:
             settings.model_dir = str(subs[0])
 
 
+STARTUP_LOCK = 7428302  # Postgres advisory lock: one worker/instance at a time runs the admin bootstrap
+
+
 def _bootstrap_admin() -> None:
-    """Create the first administrator from ADMIN_USERNAME / ADMIN_PASSWORD once. An existing account is never
-    modified, so the env password stops mattering after the admin changes it. MFA enrolment is forced at first
-    sign-in (REQUIRE_MFA)."""
+    """Run _apply_admin_env under a cross-process lock. Render starts several uvicorn workers (and instances) at the
+    same moment; without the lock they all try to create the same administrator and the losers crash on the unique
+    username constraint. A failure here is logged and never stops the app from starting."""
+    pg = engine.dialect.name == "postgresql"
+    try:
+        with SessionLocal() as lockdb:
+            if pg:
+                lockdb.execute(text("SELECT pg_advisory_lock(:k)"), {"k": STARTUP_LOCK})
+            try:
+                _apply_admin_env()
+            finally:
+                if pg:
+                    lockdb.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": STARTUP_LOCK})
+                    lockdb.commit()
+    except IntegrityError:
+        log.info("Administrator account was created by another worker")
+    except Exception:
+        log.exception("Administrator bootstrap failed; the app continues to start")
+
+
+def _apply_admin_env() -> None:
+    """Create the first administrator from ADMIN_USERNAME / ADMIN_PASSWORD once. An existing account is left alone
+    unless ADMIN_RESET=true (break-glass recovery, applied once per distinct ADMIN_PASSWORD). MFA enrolment is
+    forced at first sign-in (REQUIRE_MFA)."""
     if not (settings.admin_username and settings.admin_password):
+        if not settings.admin_username:
+            log.warning("ADMIN_USERNAME is not set: no administrator account will be created")
         return
     if len(settings.admin_password) < settings.password_min_length:
-        log.error("ADMIN_PASSWORD is shorter than %s characters; first administrator not created", settings.password_min_length)
+        log.error("ADMIN_PASSWORD is shorter than %s characters; administrator account not created or reset",
+                  settings.password_min_length)
         return
     with SessionLocal() as db:
-        if db.scalar(select(User).where(User.username == settings.admin_username)) is None:
+        u = db.scalar(select(User).where(User.username == settings.admin_username))
+        if u is None:
             u = User(username=settings.admin_username, full_name="Administrator", password_hash=hash_password(settings.admin_password),
                      role="admin", status="active", approved_at=utcnow())
             db.add(u)
             db.commit()
             audit.record("users.bootstrap_admin", actor_label="system", target_type="user", target_id=u.id)
             log.info("Created the first administrator account (id %s)", u.id)
+            return
+        if not settings.admin_reset:
+            return
+        fp = hmac.new(settings.secret_key.encode(), ("admin-reset:" + settings.admin_password).encode(), "sha256").hexdigest()
+        done = db.scalars(select(AuditEvent.details).where(AuditEvent.action == "users.admin_reset", AuditEvent.target_id == str(u.id)))
+        if any((d or {}).get("fp") == fp for d in done):
+            return
+        u.password_hash, u.role, u.status = hash_password(settings.admin_password), "admin", "active"
+        u.failed_logins, u.locked_until, u.must_change_password, u.password_changed_at = 0, None, True, utcnow()
+        u.mfa_enabled, u.mfa_secret, u.mfa_last_step, u.recovery_codes = False, None, None, []
+        db.commit()
+        revoke_user_sessions(db, u.id)
+        audit.record("users.admin_reset", actor_label="system", target_type="user", target_id=u.id, fp=fp)
+        log.warning("ADMIN_RESET applied to the administrator account (id %s); set ADMIN_RESET=false", u.id)
 
 
 def _purge_old_assessments() -> None:
     """Data retention: delete stored assessments older than ASSESSMENT_RETENTION_DAYS (0 keeps them)."""
     if settings.assessment_retention_days <= 0:
         return
+    try:
+        _purge()
+    except Exception:
+        log.exception("Assessment retention purge failed; will retry at next start")
+
+
+def _purge() -> None:
     cutoff = utcnow() - dt.timedelta(days=settings.assessment_retention_days)
     with SessionLocal() as db:
         n = db.execute(delete(Assessment).where(Assessment.created_at < cutoff)).rowcount
@@ -283,6 +334,6 @@ async def unhandled_exc(request: Request, exc: Exception):
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
-@app.get("/", include_in_schema=False)
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def index():
     return FileResponse(STATIC / "index.html")
