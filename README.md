@@ -166,13 +166,32 @@ The simulator refuses to run unless the data folder carries the `SYNTHETIC` mark
 
 Then set `ALLOW_DEMO_MODELS=false`. The demo banner disappears automatically once the bundle's provenance is `mayo-clinic-platform`. Confirm your Mayo agreement allows hosting the exported model this way.
 
+### Database schema (Prisma)
+
+Prisma owns the Render Postgres schema. The FastAPI app reads and writes through SQLAlchemy and never creates tables in production (`DB_SCHEMA_MANAGER=prisma`).
+
+| File | Purpose |
+|---|---|
+| `prisma/schema.prisma` | Tables `users` and `assessments`. Keep in step with `app/db.py`; `tests/test_postgres.py` checks it. |
+| `prisma/migrations/` | Versioned SQL migrations, applied by `prisma migrate deploy`. |
+| `prisma.config.mjs` | Prisma 7 config; reads `DATABASE_URL`. |
+| `scripts/db_migrate.py` | Render `preDeployCommand`. It migrates a fresh database, or adopts tables created by the earlier app version (rows kept) and then migrates. |
+
+**Changing the schema:**
+1. Edit `prisma/schema.prisma` and `app/db.py` together.
+2. Run `npm run db:new -- --name <change>` against a dev database. This writes a new migration folder.
+3. Commit both files.
+
+Render applies the migration before the next deploy. CI fails if the migrations and the schema drift apart.
+
 ## 3. Run locally
 
 ```bash
 pip install -r requirements.txt
 ADMIN_USERNAME=admin ADMIN_PASSWORD=change-me-12345 uvicorn app.main:app --reload
 # open http://localhost:8000  — API docs at /docs
-pytest -q                                  # 38 tests (governed pipeline + Spark SQL round-trip when pyspark/Java are available)
+pip install -r requirements-dev.txt
+pytest -q                                  # 39 tests (+3 Postgres tests when TEST_DATABASE_URL is set)
 
 # retrain the demo bundle
 pip install pyarrow

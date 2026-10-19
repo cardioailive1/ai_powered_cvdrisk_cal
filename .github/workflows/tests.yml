@@ -7,17 +7,65 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
-      - uses: actions/setup-java@v4       # for the Spark SQL round-trip test
+      - uses: actions/setup-java@v5          # Spark SQL round-trip tests
         with:
           distribution: temurin
           java-version: "17"
       - name: Install
-        run: |
-          pip install -r requirements-training.txt pytest "pyspark==3.5.3"
+        run: pip install -r requirements-dev.txt
       - name: Test
         run: pytest -q
+
+  prisma:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          npm ci
+          pip install -r requirements-dev.txt
+      - name: Create databases
+        run: |
+          psql -h localhost -U postgres -c "CREATE DATABASE fresh"
+          psql -h localhost -U postgres -c "CREATE DATABASE legacy"
+      - name: Validate Prisma schema
+        env: { DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/fresh" }
+        run: npx prisma validate
+      - name: Fresh database - migrate (same command as Render preDeploy) and check for drift
+        env: { DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/fresh" }
+        run: |
+          python scripts/db_migrate.py
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+      - name: Existing pre-Prisma database - adopt, migrate and check for drift
+        env: { DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/legacy" }
+        run: |
+          python tests/make_legacy_db.py "$DATABASE_URL"
+          python scripts/db_migrate.py
+          npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+          test "$(psql "$DATABASE_URL" -tAc "SELECT inputs->>'sbp' FROM assessments")" = "140"
+      - name: App against the Prisma-managed database
+        env: { TEST_DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/fresh" }
+        run: pytest -q tests/test_postgres.py

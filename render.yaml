@@ -1,6 +1,7 @@
 # Render Blueprint — New + > Blueprint > connect this repo.
 # Written for a Render **Pro workspace** (autoscaling, Postgres high availability) using the current
-# compute plan names (https://render.com/docs/blueprint-spec). The Render web app never receives patient
+# compute plan names (https://render.com/docs/blueprint-spec). The Postgres schema is managed by Prisma
+# (prisma/schema.prisma + prisma/migrations), applied by the preDeployCommand. The Render web app never receives patient
 # data: it only serves trained model bundles exported from the Mayo Clinic Platform workspace.
 services:
   - type: web
@@ -14,7 +15,8 @@ services:
       targetCPUPercent: 70
       targetMemoryPercent: 80
     autoDeployTrigger: commit        # switch to checksPass once the GitHub Actions "tests" workflow runs on this repo
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && npm ci
+    preDeployCommand: python scripts/db_migrate.py   # Prisma migrations (prisma migrate deploy) before each deploy
     startCommand: >-
       uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
       --proxy-headers --forwarded-allow-ips='*'
@@ -22,6 +24,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: NODE_VERSION            # Prisma 7 needs Node >= 22.12 (also pinned in .node-version)
+        value: 22.18.0
+      - key: DB_SCHEMA_MANAGER       # Prisma owns the Postgres schema; the app never creates tables itself
+        value: prisma
       - key: APP_ENV
         value: production
       - key: SECRET_KEY              # shared by all instances so sessions work behind the load balancer

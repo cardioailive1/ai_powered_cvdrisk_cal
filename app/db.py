@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, create_engine
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, create_engine, inspect
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from .config import settings
@@ -18,6 +19,10 @@ def utcnow() -> dt.datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+# Column definitions mirror prisma/schema.prisma (Prisma owns the Postgres schema on Render).
+JSONType = JSON().with_variant(JSONB(), "postgresql")
 
 
 class User(Base):
@@ -36,13 +41,24 @@ class Assessment(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     calculator: Mapped[str] = mapped_column(String(20))
-    inputs: Mapped[dict] = mapped_column(JSON)
-    results: Mapped[dict] = mapped_column(JSON)
+    inputs: Mapped[dict] = mapped_column(JSONType)
+    results: Mapped[dict] = mapped_column(JSONType)
     model_bundle: Mapped[str] = mapped_column(String(120))
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class SchemaNotMigrated(RuntimeError):
+    pass
+
+
 def init_db() -> None:
+    if settings.schema_manager == "prisma":
+        missing = sorted(set(Base.metadata.tables) - set(inspect(engine).get_table_names()))
+        if missing:
+            raise SchemaNotMigrated(
+                f"Database tables missing: {', '.join(missing)}. The schema is managed by Prisma: run "
+                "`npx prisma migrate deploy` (Render runs it as the preDeployCommand).")
+        return
     Base.metadata.create_all(engine)
 
 

@@ -1,0 +1,15 @@
+{
+  "name": "cardioai-cvd-risk-db",
+  "private": true,
+  "description": "Prisma schema management for the CardioAI Render Postgres database",
+  "engines": { "node": ">=22.12" },
+  "scripts": {
+    "db:validate": "prisma validate",
+    "db:migrate": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "db:new": "prisma migrate dev --create-only"
+  },
+  "dependencies": {
+    "prisma": "7.10.0"
+  }
+}

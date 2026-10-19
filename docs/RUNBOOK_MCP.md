@@ -256,7 +256,7 @@ tar -czf mcp-bundle-$(date +%Y-%m).tar.gz -C bundles mcp-$(date +%Y-%m)
 ```
 **10.2 Submit** the tarball, `VALIDATION_REPORT.md` and `RELEASE_REPORT.md` for **Mayo Clinic Platform export review**. Optionally also submit to **Platform_Validate** for an independent bias / sensitivity / specificity report.
 
-**10.3 After approval:** upload the tarball to private object storage (signed URL). Then in the Render dashboard for `cardioai-cvd-risk`:
+**10.3 After approval:** upload the tarball to private object storage (signed URL). Render applies the Prisma database migrations automatically before each deploy (`scripts/db_migrate.py`). Then in the Render dashboard for `cardioai-cvd-risk`:
 - `MODEL_BUNDLE_URL` = the signed URL (`MODEL_BUNDLE_TOKEN` if needed);
 - `ALLOW_DEMO_MODELS` = `false`;
 - redeploy.
