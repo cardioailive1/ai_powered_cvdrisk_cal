@@ -8,31 +8,108 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <!-- Login -->
-  <div id="login-screen" class="login-screen">
+  <!-- Sign-in gate: nothing below #app-shell is shown (or fetched) until a full session exists -->
+  <div id="auth-screen" class="login-screen">
     <div class="login-box">
       <div class="login-logo">🫀</div>
       <h2 class="login-title">CV Risk Calculator</h2>
-      <p class="login-subtitle">Secure Access Required</p>
-      <div id="error-message" class="error-message"></div>
-      <form class="login-form" id="login-form" autocomplete="on">
-        <div class="form-group">
-          <label class="form-label" for="username">Username</label>
-          <input type="text" id="username" class="form-input" placeholder="Enter username" autocomplete="username" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="password">Password</label>
-          <input type="password" id="password" class="form-input" placeholder="Enter password" autocomplete="current-password" required>
-        </div>
-        <button type="submit" class="login-btn" id="login-btn">Access Calculator</button>
+      <p class="login-subtitle" id="auth-subtitle">Secure Access Required</p>
+      <div id="auth-error" class="error-message" role="alert"></div>
+      <div id="auth-info" class="info-message hidden" role="status"></div>
+
+      <!-- sign in -->
+      <form class="login-form auth-view" id="view-signin" autocomplete="on">
+        <div class="form-group"><label class="form-label" for="si-email">Email</label>
+          <input type="text" id="si-email" class="form-input" placeholder="you@hospital.org" inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
+        <div class="form-group"><label class="form-label" for="si-password">Password</label>
+          <input type="password" id="si-password" class="form-input" placeholder="Password" autocomplete="current-password" required></div>
+        <button type="submit" class="login-btn">Sign in</button>
+        <p class="auth-switch" id="signup-link-row">New here? <a href="#" data-view="view-signup">Request an account</a></p>
       </form>
+
+      <!-- account request -->
+      <form class="login-form auth-view hidden" id="view-signup" autocomplete="on" novalidate>
+        <div class="form-group"><label class="form-label" for="su-name">Full name</label>
+          <input type="text" id="su-name" class="form-input" autocomplete="name" maxlength="120" required></div>
+        <div class="form-group"><label class="form-label" for="su-email">Work email</label>
+          <input type="email" id="su-email" class="form-input" autocomplete="email" maxlength="254" required>
+          <div class="field-hint" id="su-domain-hint"></div></div>
+        <div class="form-group"><label class="form-label" for="su-org">Organization / department</label>
+          <input type="text" id="su-org" class="form-input" autocomplete="organization" maxlength="160"></div>
+        <div class="form-group"><label class="form-label" for="su-password">Password</label>
+          <input type="password" id="su-password" class="form-input" autocomplete="new-password" required>
+          <div class="pw-meter"><span id="su-meter"></span></div>
+          <div class="field-hint" id="su-pw-hint">At least 12 characters. A passphrase of several words works well.</div></div>
+        <div class="form-group"><label class="form-label" for="su-password2">Confirm password</label>
+          <input type="password" id="su-password2" class="form-input" autocomplete="new-password" required></div>
+        <label class="terms"><input type="checkbox" id="su-terms">
+          <span>I will use this system only for authorized clinical or research work, keep any patient information
+          confidential, never enter names, MRNs or other direct identifiers, and I understand that all activity is logged
+          and audited.</span></label>
+        <button type="submit" class="login-btn">Request account</button>
+        <p class="auth-switch">Already have an account? <a href="#" data-view="view-signin">Sign in</a></p>
+      </form>
+
+      <!-- second factor -->
+      <form class="login-form auth-view hidden" id="view-mfa" autocomplete="off">
+        <p class="auth-text">Enter the 6-digit code from your authenticator app.</p>
+        <div class="form-group"><label class="form-label" for="mfa-code">Authentication code</label>
+          <input type="text" id="mfa-code" class="form-input code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required></div>
+        <button type="submit" class="login-btn">Verify</button>
+        <p class="auth-switch">Lost your phone? Enter one of your recovery codes instead, or ask an administrator to reset MFA.
+          <br><a href="#" data-view="view-signin">Back to sign in</a></p>
+      </form>
+
+      <!-- forced password change -->
+      <form class="login-form auth-view hidden" id="view-password" autocomplete="on">
+        <p class="auth-text">You signed in with a temporary password. Choose a new one to continue.</p>
+        <div class="form-group"><label class="form-label" for="pw-current">Temporary password</label>
+          <input type="password" id="pw-current" class="form-input" autocomplete="current-password" required></div>
+        <div class="form-group"><label class="form-label" for="pw-new">New password</label>
+          <input type="password" id="pw-new" class="form-input" autocomplete="new-password" required></div>
+        <div class="form-group"><label class="form-label" for="pw-new2">Confirm new password</label>
+          <input type="password" id="pw-new2" class="form-input" autocomplete="new-password" required></div>
+        <button type="submit" class="login-btn">Save password</button>
+      </form>
+
+      <!-- MFA enrolment -->
+      <form class="login-form auth-view hidden" id="view-enroll" autocomplete="off">
+        <p class="auth-text"><b>Set up two-factor authentication.</b> Scan this QR code with an authenticator app
+          (Microsoft Authenticator, Google Authenticator, 1Password, Authy…), then enter the 6-digit code it shows.</p>
+        <div class="qr-box"><img id="enroll-qr" alt="QR code for your authenticator app" width="220" height="220"></div>
+        <p class="field-hint">Can't scan? Enter this key manually: <code id="enroll-secret" class="secret"></code></p>
+        <div class="form-group"><label class="form-label" for="enroll-code">6-digit code</label>
+          <input type="text" id="enroll-code" class="form-input code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="8" required></div>
+        <button type="submit" class="login-btn">Turn on two-factor authentication</button>
+      </form>
+
+      <!-- recovery codes (shown once) -->
+      <div class="login-form auth-view hidden" id="view-recovery">
+        <p class="auth-text"><b>Save your recovery codes.</b> Each one signs you in once if you lose your phone.
+          They are shown only now.</p>
+        <pre id="recovery-codes" class="recovery-codes"></pre>
+        <button type="button" class="btn-secondary small" id="recovery-copy">Copy codes</button>
+        <button type="button" class="login-btn" id="recovery-done">I have saved them — continue</button>
+      </div>
+
+      <p class="auth-banner">Authorized users only. This system processes clinical information; access and activity are
+        monitored and recorded. Sessions end after <span id="idle-min">15</span> minutes of inactivity.</p>
     </div>
   </div>
 
-  <span id="user-chip" class="user-chip hidden"></span>
-  <button id="logout-btn" class="logout-btn hidden">Logout</button>
+  <div id="app-shell" class="hidden">
+  <nav class="topbar" aria-label="Main">
+    <div class="brand">🫀 CardioAI</div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-page="page-calc" role="tab">Calculator</button>
+      <button class="tab" data-page="page-account" role="tab">My account</button>
+      <button class="tab hidden" data-page="page-users" data-perm="users:read" role="tab">Users <span class="badge hidden" id="pending-badge"></span></button>
+      <button class="tab hidden" data-page="page-audit" data-perm="audit:read" role="tab">Audit log</button>
+    </div>
+    <div class="who"><span id="user-chip" class="user-chip"></span><button id="logout-btn" class="btn-secondary small">Sign out</button></div>
+  </nav>
 
-  <div id="main-content" class="hidden">
+  <div id="page-calc" class="page">
     <div class="container">
       <header>
         <h1>Cardiovascular Event Probability Calculator</h1>
@@ -85,6 +162,74 @@
       </div>
     </div>
   </div>
+
+  <!-- My account -->
+  <div id="page-account" class="page hidden"><div class="container narrow">
+    <div class="form-section"><h2 class="section-title">Profile</h2><div id="acct-profile" class="kv"></div></div>
+    <div class="form-section"><h2 class="section-title">Two-factor authentication</h2><div id="acct-mfa"></div></div>
+    <div class="form-section"><h2 class="section-title">Change password</h2>
+      <form id="acct-pw-form" class="login-form" autocomplete="on">
+        <div class="form-grid">
+          <div class="form-group"><label class="form-label" for="ap-current">Current password</label><input type="password" id="ap-current" class="form-input" autocomplete="current-password" required></div>
+          <div class="form-group"><label class="form-label" for="ap-new">New password</label><input type="password" id="ap-new" class="form-input" autocomplete="new-password" required></div>
+          <div class="form-group"><label class="form-label" for="ap-new2">Confirm</label><input type="password" id="ap-new2" class="form-input" autocomplete="new-password" required></div>
+        </div>
+        <div id="ap-msg" class="inline-msg"></div>
+        <button type="submit" class="btn-primary small">Update password</button>
+      </form></div>
+    <div class="form-section"><h2 class="section-title">Signed-in sessions</h2><div id="acct-sessions"></div></div>
+  </div></div>
+
+  <!-- Users (admin / auditor) -->
+  <div id="page-users" class="page hidden"><div class="container">
+    <div class="form-section"><h2 class="section-title">Account requests awaiting approval</h2><div id="pending-list"></div></div>
+    <div class="form-section" data-perm="users:manage"><h2 class="section-title">Create an account</h2>
+      <form id="create-user-form" class="inline-form">
+        <input class="form-input" id="cu-name" placeholder="Full name" required maxlength="120">
+        <input class="form-input" id="cu-email" type="email" placeholder="Email" required maxlength="254">
+        <input class="form-input" id="cu-org" placeholder="Organization" maxlength="160">
+        <select id="cu-role" class="role-select"></select>
+        <button type="submit" class="btn-primary small">Create</button>
+      </form>
+      <div id="cu-result" class="inline-msg"></div></div>
+    <div class="form-section"><h2 class="section-title">All accounts</h2>
+      <div class="field-hint">Role and status changes sign the user out everywhere; new privileges apply at their next sign-in.</div>
+      <div id="user-table" class="table-wrap"></div></div>
+    <div class="form-section"><h2 class="section-title">Roles</h2><div id="role-matrix" class="table-wrap"></div></div>
+  </div></div>
+
+  <!-- Audit log (admin / auditor) -->
+  <div id="page-audit" class="page hidden"><div class="container">
+    <div class="form-section"><h2 class="section-title">Audit log</h2>
+      <form id="audit-filter" class="inline-form">
+        <input class="form-input" id="af-action" placeholder="Action (e.g. auth.* or phi.*)">
+        <input class="form-input" id="af-actor" placeholder="User email contains">
+        <select id="af-outcome" class="role-select"><option value="">Any outcome</option><option>success</option><option>failure</option><option>denied</option></select>
+        <button type="submit" class="btn-primary small">Filter</button>
+        <button type="button" class="btn-secondary small" id="audit-verify">Verify integrity</button>
+        <a class="btn-secondary small linkbtn" id="audit-export" href="/api/audit/export.csv">Export CSV</a>
+      </form>
+      <div id="audit-status" class="inline-msg"></div>
+      <div id="audit-table" class="table-wrap"></div>
+      <button type="button" class="btn-secondary small hidden" id="audit-more">Load older events</button>
+    </div>
+  </div></div>
+  </div><!-- /app-shell -->
+
+  <!-- inactivity warning -->
+  <div id="idle-modal" class="modal hidden" role="alertdialog" aria-labelledby="idle-title">
+    <div class="modal-box"><h3 id="idle-title">Still there?</h3>
+      <p>For patient privacy you will be signed out in <b id="idle-count">60</b> seconds.</p>
+      <button class="login-btn" id="idle-stay">Stay signed in</button></div>
+  </div>
+
+  <!-- one-time secret display (temporary passwords) -->
+  <div id="secret-modal" class="modal hidden" role="dialog" aria-labelledby="secret-title">
+    <div class="modal-box"><h3 id="secret-title">One-time password</h3>
+      <p id="secret-note"></p><pre id="secret-value" class="recovery-codes"></pre>
+      <button class="login-btn" id="secret-close">Done</button></div>
+  </div>
   <script src="/static/app.js"></script>
+  <script src="/static/admin.js"></script>
 </body>
 </html>

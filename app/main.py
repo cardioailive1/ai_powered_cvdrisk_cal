@@ -9,22 +9,25 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import datetime as dt
+
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from cardioai_core.bundle import ModelBundle, load_bundle, nan_to_none
 from cardioai_core.equations import run_equations
 from cardioai_core.schema import CALCULATORS, FIELDS, HORIZONS, SECTIONS, validate_input
 
-from . import recommendations
-from .auth import create_token, current_user, hash_password, require_admin, throttle_login, verify_password
-from .config import ROOT, settings
-from .db import Assessment, SessionLocal, User, get_db, init_db
+from . import audit, recommendations, routes_admin, routes_auth
+from .auth import Ctx, hash_password, require
+from .config import settings
+from .db import Assessment, SessionLocal, User, get_db, init_db, utcnow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("cardioai")
@@ -52,19 +55,41 @@ def _fetch_bundle(url: str, dest: Path) -> None:
 
 
 def _bootstrap_admin() -> None:
+    """Create the first administrator from ADMIN_USERNAME / ADMIN_PASSWORD once. An existing account is never
+    modified, so the env password stops mattering after the admin changes it. MFA enrolment is forced at first
+    sign-in (REQUIRE_MFA)."""
     if not (settings.admin_username and settings.admin_password):
+        return
+    if len(settings.admin_password) < settings.password_min_length:
+        log.error("ADMIN_PASSWORD is shorter than %s characters; first administrator not created", settings.password_min_length)
         return
     with SessionLocal() as db:
         if db.scalar(select(User).where(User.username == settings.admin_username)) is None:
-            db.add(User(username=settings.admin_username, password_hash=hash_password(settings.admin_password), role="admin"))
+            u = User(username=settings.admin_username, full_name="Administrator", password_hash=hash_password(settings.admin_password),
+                     role="admin", status="active", approved_at=utcnow())
+            db.add(u)
             db.commit()
-            log.info("Created admin user '%s'", settings.admin_username)
+            audit.record("users.bootstrap_admin", actor_label="system", target_type="user", target_id=u.id)
+            log.info("Created the first administrator account (id %s)", u.id)
+
+
+def _purge_old_assessments() -> None:
+    """Data retention: delete stored assessments older than ASSESSMENT_RETENTION_DAYS (0 keeps them)."""
+    if settings.assessment_retention_days <= 0:
+        return
+    cutoff = utcnow() - dt.timedelta(days=settings.assessment_retention_days)
+    with SessionLocal() as db:
+        n = db.execute(delete(Assessment).where(Assessment.created_at < cutoff)).rowcount
+        db.commit()
+    if n:
+        audit.record("retention.assessments_purged", actor_label="system", count=n, retention_days=settings.assessment_retention_days)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     _bootstrap_admin()
+    _purge_old_assessments()
     model_dir = Path(settings.model_dir)
     if settings.model_bundle_url and not (model_dir / "manifest.json").exists():
         try:
@@ -75,18 +100,36 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="CardioAI CVD Risk API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="CardioAI CVD Risk API", version="3.0.0", lifespan=lifespan,
+              docs_url=None if settings.production else "/docs", redoc_url=None,
+              openapi_url=None if settings.production else "/openapi.json")
 if settings.cors_origins:
-    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
+                       allow_methods=["GET", "POST", "PATCH", "DELETE"], allow_headers=["Content-Type", "X-CSRF-Token"])
+app.include_router(routes_auth.router)
+app.include_router(routes_admin.router)
+
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "img-src 'self' data:; connect-src 'self'; font-src 'self' https://fonts.gstatic.com; object-src 'none'; "
+       "base-uri 'none'; form-action 'self'; "
+       "frame-ancestors 'none'")
 
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     resp = await call_next(request)
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["X-Frame-Options"] = "DENY"
-    resp.headers["Referrer-Policy"] = "no-referrer"
-    resp.headers["Cache-Control"] = resp.headers.get("Cache-Control", "no-store") if request.url.path.startswith("/api") else resp.headers.get("Cache-Control", "no-cache")
+    h = resp.headers
+    h["Content-Security-Policy"] = CSP
+    h["X-Content-Type-Options"] = "nosniff"
+    h["X-Frame-Options"] = "DENY"
+    h["Referrer-Policy"] = "no-referrer"
+    h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    h["Cross-Origin-Opener-Policy"] = "same-origin"
+    h["Cross-Origin-Resource-Policy"] = "same-origin"
+    if settings.cookie_secure:
+        h["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    # nothing that may hold clinical data is cached by browsers or proxies
+    h["Cache-Control"] = "no-store" if request.url.path.startswith("/api") or request.url.path == "/" else h.get("Cache-Control", "no-cache")
     return resp
 
 
@@ -95,20 +138,9 @@ def get_bundle(request: Request) -> ModelBundle | None:
 
 
 # ------------------------------------------------------------------ schemas
-class LoginIn(BaseModel):
-    username: str = Field(min_length=1, max_length=80)
-    password: str = Field(min_length=1, max_length=200)
-
-
 class PredictIn(BaseModel):
     calculator: str
     patient: dict[str, Any]
-
-
-class UserIn(BaseModel):
-    username: str = Field(min_length=3, max_length=80)
-    password: str = Field(min_length=10, max_length=200)
-    role: str = Field(default="clinician", pattern="^(clinician|admin)$")
 
 
 # ------------------------------------------------------------------ routes
@@ -118,22 +150,8 @@ def healthz(request: Request):
     return {"status": "ok", "models_loaded": bool(b), "bundle": b.manifest.get("bundle_id") if b else None}
 
 
-@app.post("/api/auth/login")
-def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
-    throttle_login(request)
-    user = db.scalar(select(User).where(User.username == body.username.strip()))
-    if not user or not user.active or not verify_password(body.password, user.password_hash):
-        raise HTTPException(401, "Invalid username or password. Please try again.")
-    return {"token": create_token(user), "username": user.username, "role": user.role}
-
-
-@app.get("/api/me")
-def me(user: User = Depends(current_user)):
-    return {"username": user.username, "role": user.role}
-
-
 @app.get("/api/meta")
-def meta(request: Request, user: User = Depends(current_user)):
+def meta(request: Request, ctx: Ctx = Depends(require("models:read"))):
     b = get_bundle(request)
     calcs = {}
     for cid, c in CALCULATORS.items():
@@ -154,7 +172,7 @@ def meta(request: Request, user: User = Depends(current_user)):
 
 
 @app.get("/api/models")
-def model_cards(request: Request, user: User = Depends(current_user)):
+def model_cards(request: Request, ctx: Ctx = Depends(require("models:read"))):
     b = get_bundle(request)
     if not b:
         raise HTTPException(503, "No model bundle loaded")
@@ -164,7 +182,8 @@ def model_cards(request: Request, user: User = Depends(current_user)):
 
 
 @app.post("/api/predict")
-def predict(body: PredictIn, request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)):
+def predict(body: PredictIn, request: Request, ctx: Ctx = Depends(require("predict")), db: Session = Depends(get_db)):
+    user = ctx.user
     if body.calculator not in CALCULATORS:
         raise HTTPException(422, f"Unknown calculator '{body.calculator}'")
     p = body.patient
@@ -225,39 +244,19 @@ def predict(body: PredictIn, request: Request, user: User = Depends(current_user
         db.add(a)
         db.commit()
         result["assessment_id"] = a.id
+    audit.record("phi.assessment_created", request=request, actor=user, target_type="assessment",
+                 target_id=result.get("assessment_id", ""), calculator=body.calculator, stored=settings.store_assessments)
     return result
 
 
 @app.get("/api/assessments")
-def assessments(limit: int = 20, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    q = select(Assessment).where(Assessment.user_id == user.id).order_by(Assessment.created_at.desc()).limit(min(limit, 100))
+def assessments(request: Request, limit: int = 20, ctx: Ctx = Depends(require("assessments:own")), db: Session = Depends(get_db)):
+    q = select(Assessment).where(Assessment.user_id == ctx.user.id).order_by(Assessment.created_at.desc()).limit(max(1, min(limit, 100)))
+    rows = list(db.scalars(q))
+    audit.record("phi.assessments_viewed", request=request, actor=ctx.user, target_type="assessment",
+                 target_id=",".join(str(a.id) for a in rows)[:64], count=len(rows))
     return [{"id": a.id, "calculator": a.calculator, "created_at": a.created_at.isoformat(),
-             "primary": (a.results or {}).get("primary"), "inputs": a.inputs} for a in db.scalars(q)]
-
-
-@app.get("/api/users")
-def list_users(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    return [{"id": u.id, "username": u.username, "role": u.role, "active": u.active} for u in db.scalars(select(User))]
-
-
-@app.post("/api/users", status_code=201)
-def create_user(body: UserIn, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    if db.scalar(select(User).where(User.username == body.username)):
-        raise HTTPException(409, "Username already exists")
-    u = User(username=body.username, password_hash=hash_password(body.password), role=body.role)
-    db.add(u)
-    db.commit()
-    return {"id": u.id, "username": u.username, "role": u.role}
-
-
-@app.patch("/api/users/{user_id}")
-def set_active(user_id: int, active: bool, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    u = db.get(User, user_id)
-    if not u:
-        raise HTTPException(404, "Not found")
-    u.active = active
-    db.commit()
-    return {"id": u.id, "active": u.active}
+             "primary": (a.results or {}).get("primary"), "inputs": a.inputs} for a in rows]
 
 
 @app.exception_handler(HTTPException)
@@ -265,6 +264,19 @@ async def http_exc(request: Request, exc: HTTPException):
     detail = exc.detail
     body = detail if isinstance(detail, dict) else {"detail": detail}
     return JSONResponse(body, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exc(request: Request, exc: RequestValidationError):
+    # Don't echo submitted values back (they may be passwords or clinical data)
+    errs = [f"{'.'.join(str(x) for x in e['loc'][1:]) or 'body'}: {e['msg']}" for e in exc.errors()]
+    return JSONResponse({"detail": "Invalid request", "errors": errs}, status_code=422)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exc(request: Request, exc: Exception):
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse({"detail": "Internal error"}, status_code=500)
 
 
 # ------------------------------------------------------------------ frontend

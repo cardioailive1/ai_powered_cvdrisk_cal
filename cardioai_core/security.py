@@ -1,5 +1,4 @@
-"""Password hashing and signed session tokens, shared by the Render app and the
-curation workbench."""
+"""Password hashing and signed tokens, shared by the Render app and the curation workbench."""
 from __future__ import annotations
 
 import base64
@@ -10,7 +9,8 @@ import os
 
 import jwt
 
-_ITER = 390_000
+# OWASP Password Storage Cheat Sheet: PBKDF2-HMAC-SHA256 with >= 600,000 iterations.
+_ITER = 600_000
 
 
 def hash_password(password: str) -> str:
@@ -28,15 +28,32 @@ def verify_password(password: str, stored: str) -> bool:
         return False
 
 
-def make_token(secret: str, user_id: int, username: str, role: str, ttl_minutes: int) -> str:
+def needs_rehash(stored: str) -> bool:
+    """True when a stored hash uses fewer iterations than the current policy (upgraded on next sign-in)."""
+    try:
+        return int(stored.split("$")[1]) < _ITER
+    except Exception:
+        return True
+
+
+# A valid hash of a random password: verifying against it when the account does not exist keeps response
+# times the same for unknown and known accounts (no account enumeration by timing).
+DUMMY_HASH = hash_password(base64.b64encode(os.urandom(18)).decode())
+
+
+def make_token(secret: str, user_id: int, username: str, role: str, ttl_minutes: int, **extra) -> str:
     now = dt.datetime.now(dt.timezone.utc)
     return jwt.encode({"sub": str(user_id), "usr": username, "role": role, "iat": now,
-                       "exp": now + dt.timedelta(minutes=ttl_minutes)}, secret, algorithm="HS256")
+                       "exp": now + dt.timedelta(minutes=ttl_minutes), **extra}, secret, algorithm="HS256")
 
 
 def read_token(secret: str, token: str) -> dict:
     """Raises jwt.PyJWTError when invalid or expired."""
     return jwt.decode(token, secret, algorithms=["HS256"])
+
+
+def sha256_hex(s: str) -> str:
+    return hashlib.sha256(s.encode()).hexdigest()
 
 
 def sha256_file(path) -> str:

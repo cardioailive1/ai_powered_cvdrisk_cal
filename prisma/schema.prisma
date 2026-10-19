@@ -10,15 +10,81 @@ datasource db {
 }
 
 model User {
-  id           Int          @id @default(autoincrement())
-  username     String       @unique @db.VarChar(80)
-  passwordHash String       @map("password_hash") @db.VarChar(255)
-  role         String       @default("clinician") @db.VarChar(20) // clinician | admin
-  active       Boolean      @default(true)
-  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  assessments  Assessment[]
+  id                 Int           @id @default(autoincrement())
+  username           String        @unique @db.VarChar(254) // sign-in name: lower-case email
+  fullName           String        @default("") @map("full_name") @db.VarChar(120)
+  organization       String        @default("") @db.VarChar(160)
+  passwordHash       String        @map("password_hash") @db.VarChar(255)
+  role               String        @default("clinician") @db.VarChar(20) // viewer | clinician | auditor | admin (app/rbac.py)
+  status             String        @default("pending") @db.VarChar(20) // pending | active | disabled | rejected
+  mfaSecret          String?       @map("mfa_secret") @db.VarChar(255) // TOTP secret, Fernet-encrypted
+  mfaEnabled         Boolean       @default(false) @map("mfa_enabled")
+  mfaLastStep        Int?          @map("mfa_last_step")
+  recoveryCodes      Json          @default("[]") @map("recovery_codes")
+  failedLogins       Int           @default(0) @map("failed_logins")
+  lockedUntil        DateTime?     @map("locked_until") @db.Timestamptz(6)
+  mustChangePassword Boolean       @default(false) @map("must_change_password")
+  passwordChangedAt  DateTime      @default(now()) @map("password_changed_at") @db.Timestamptz(6)
+  lastLoginAt        DateTime?     @map("last_login_at") @db.Timestamptz(6)
+  approvedById       Int?          @map("approved_by_id")
+  approvedAt         DateTime?     @map("approved_at") @db.Timestamptz(6)
+  termsAcceptedAt    DateTime?     @map("terms_accepted_at") @db.Timestamptz(6)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  assessments        Assessment[]
+  sessions           AuthSession[]
 
   @@map("users")
+}
+
+/// Server-side session; the browser holds only the random token (HttpOnly cookie), the database its SHA-256.
+model AuthSession {
+  id         Int       @id @default(autoincrement())
+  userId     Int       @map("user_id")
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(64)
+  scope      String    @default("full") @db.VarChar(20) // full | setup
+  ip         String    @default("") @db.VarChar(64)
+  userAgent  String    @default("") @map("user_agent") @db.VarChar(255)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+/// Append-only, hash-chained audit trail. UPDATE and DELETE are rejected by a trigger (see the migration).
+/// actor_id is deliberately not a foreign key so events outlive any change to the user row.
+model AuditEvent {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  actorId    Int?     @map("actor_id")
+  actor      String   @default("") @db.VarChar(254)
+  action     String   @db.VarChar(60)
+  outcome    String   @db.VarChar(20)
+  targetType String   @default("") @map("target_type") @db.VarChar(40)
+  targetId   String   @default("") @map("target_id") @db.VarChar(64)
+  ip         String   @default("") @db.VarChar(64)
+  userAgent  String   @default("") @map("user_agent") @db.VarChar(255)
+  details    Json     @default("{}")
+  prevHash   String   @map("prev_hash") @db.VarChar(64)
+  hash       String   @unique @db.VarChar(64)
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
+  @@map("audit_events")
+}
+
+/// Sign-in / sign-up attempts per client IP, shared by all autoscaled instances (rows older than a day are pruned).
+model AuthThrottle {
+  id        Int      @id @default(autoincrement())
+  key       String   @db.VarChar(128)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([key, createdAt])
+  @@map("auth_throttle")
 }
 
 /// One calculator run. Clinical inputs only: no patient identifiers are stored.
