@@ -116,3 +116,19 @@ def test_app_refuses_to_start_on_unmigrated_database():
     code = "from fastapi.testclient import TestClient\nfrom app.main import app\nTestClient(app).__enter__()"
     r = _run(code, DATABASE_URL=empty)
     assert r.returncode != 0 and "prisma migrate deploy" in r.stderr
+
+
+def test_concurrent_startup_creates_one_admin():
+    """Render starts several workers at once; all of them bootstrap the admin. None may crash (IntegrityError)."""
+    code = "from app import main; main._bootstrap_admin(); print('OK')"
+    env = {"ADMIN_USERNAME": "race.admin@cardioailive.com", "ADMIN_PASSWORD": "Race-Admin-Passphrase-5"}
+    e = {**os.environ, "PYTHONPATH": str(ROOT), "DATABASE_URL": URL, "DB_SCHEMA_MANAGER": "prisma",
+         "MODEL_DIR": str(ROOT / "models" / "synthetic-demo"), "SECRET_KEY": "x" * 48, **env}
+    procs = [subprocess.Popen([sys.executable, "-c", code], env=e, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+             for _ in range(6)]
+    outs = [p.communicate(timeout=120) for p in procs]
+    assert all(p.returncode == 0 and "OK" in o for p, (o, _) in zip(procs, outs)), [x[1][-800:] for x in outs]
+    assert not any("IntegrityError" in err for _, err in outs)
+    import psycopg
+    with psycopg.connect(URL) as con:
+        assert con.execute("SELECT count(*) FROM users WHERE username = 'race.admin@cardioailive.com'").fetchone()[0] == 1

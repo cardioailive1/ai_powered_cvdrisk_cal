@@ -18,7 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from cardioai_core.bundle import ModelBundle, load_bundle, nan_to_none
@@ -28,7 +29,7 @@ from cardioai_core.schema import CALCULATORS, FIELDS, HORIZONS, SECTIONS, valida
 from . import audit, recommendations, routes_admin, routes_auth
 from .auth import Ctx, hash_password, require, revoke_user_sessions
 from .config import settings
-from .db import Assessment, AuditEvent, SessionLocal, User, get_db, init_db, utcnow
+from .db import Assessment, AuditEvent, SessionLocal, User, engine, get_db, init_db, utcnow
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("cardioai")
@@ -55,7 +56,31 @@ def _fetch_bundle(url: str, dest: Path) -> None:
             settings.model_dir = str(subs[0])
 
 
+STARTUP_LOCK = 7428302  # Postgres advisory lock: one worker/instance at a time runs the admin bootstrap
+
+
 def _bootstrap_admin() -> None:
+    """Run _apply_admin_env under a cross-process lock. Render starts several uvicorn workers (and instances) at the
+    same moment; without the lock they all try to create the same administrator and the losers crash on the unique
+    username constraint. A failure here is logged and never stops the app from starting."""
+    pg = engine.dialect.name == "postgresql"
+    try:
+        with SessionLocal() as lockdb:
+            if pg:
+                lockdb.execute(text("SELECT pg_advisory_lock(:k)"), {"k": STARTUP_LOCK})
+            try:
+                _apply_admin_env()
+            finally:
+                if pg:
+                    lockdb.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": STARTUP_LOCK})
+                    lockdb.commit()
+    except IntegrityError:
+        log.info("Administrator account was created by another worker")
+    except Exception:
+        log.exception("Administrator bootstrap failed; the app continues to start")
+
+
+def _apply_admin_env() -> None:
     """Create the first administrator from ADMIN_USERNAME / ADMIN_PASSWORD once. An existing account is left alone
     unless ADMIN_RESET=true (break-glass recovery, applied once per distinct ADMIN_PASSWORD). MFA enrolment is
     forced at first sign-in (REQUIRE_MFA)."""
@@ -96,6 +121,13 @@ def _purge_old_assessments() -> None:
     """Data retention: delete stored assessments older than ASSESSMENT_RETENTION_DAYS (0 keeps them)."""
     if settings.assessment_retention_days <= 0:
         return
+    try:
+        _purge()
+    except Exception:
+        log.exception("Assessment retention purge failed; will retry at next start")
+
+
+def _purge() -> None:
     cutoff = utcnow() - dt.timedelta(days=settings.assessment_retention_days)
     with SessionLocal() as db:
         n = db.execute(delete(Assessment).where(Assessment.created_at < cutoff)).rowcount
@@ -302,6 +334,6 @@ async def unhandled_exc(request: Request, exc: Exception):
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
-@app.get("/", include_in_schema=False)
+@app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
 def index():
     return FileResponse(STATIC / "index.html")
