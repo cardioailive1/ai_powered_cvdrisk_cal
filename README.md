@@ -9,9 +9,14 @@ Five calculators: **AMI, Stroke, Heart Failure, Sudden Cardiac Death, Atrial Fib
 ```
 cardioai/
 ├── app/                    Render web service (FastAPI)
-│   ├── main.py             API: /api/auth/login, /api/meta, /api/predict, /api/models, /api/assessments, /api/users
-│   ├── auth.py             PBKDF2 password hashes, JWT sessions, login throttling
-│   ├── db.py               Users + assessments (Render Postgres; SQLite locally)
+│   ├── main.py             API: /api/meta, /api/predict, /api/models, /api/assessments; security headers
+│   ├── routes_auth.py      Account requests, sign-in (password + TOTP MFA), password change, sessions
+│   ├── routes_admin.py     Approvals, roles, disable/unlock/reset, audit log view / verify / export
+│   ├── auth.py             Server-side sessions (HttpOnly cookie), CSRF, idle timeout, lockout, password policy
+│   ├── rbac.py             Roles → permissions (viewer, clinician, auditor, admin)
+│   ├── mfa.py              RFC 6238 TOTP, recovery codes, encrypted MFA secrets
+│   ├── audit.py            Append-only hash-chained audit trail
+│   ├── db.py               Users, sessions, audit events, assessments (Render Postgres; SQLite locally)
 │   ├── recommendations.py  Guideline-anchored clinical considerations
 │   └── static/             Frontend (form is generated from /api/meta)
 ├── cardioai_core/          Shared by app AND training. Same features at train and predict time
@@ -157,8 +162,22 @@ The simulator refuses to run unless the data folder carries the `SYNTHETIC` mark
 
 1. Push this folder to a **private** GitHub repo.
 2. In Render: **New + → Blueprint** → select the repo. `render.yaml` creates the web service and Postgres.
-3. In the dashboard, set `ADMIN_USERNAME` and `ADMIN_PASSWORD` (12+ characters). The admin account is created on first boot.
-4. Open the site and sign in. Add clinician accounts with `POST /api/users`, using an admin token.
+3. In the dashboard, set `ADMIN_USERNAME` (the first administrator's email) and `ADMIN_PASSWORD` (12+ characters). The account is created on first boot.
+4. Open the site and sign in as that administrator. You'll be asked to set up two-factor authentication (any authenticator app) and shown 8 recovery codes.
+5. Users go to **Request an account** on the sign-in page. Their request waits in **Users → Account requests** until an administrator approves it and picks the role. Administrators can also create accounts directly, which gives a one-time password.
+
+**Accounts and access control** (details and the HIPAA / SOC 2 control map: [docs/SECURITY_COMPLIANCE.md](docs/SECURITY_COMPLIANCE.md)):
+
+| Role | Can |
+|---|---|
+| Viewer | See calculators, model cards and performance. Cannot enter patient data. |
+| Clinician | Run calculations; see their own saved assessments. |
+| Compliance auditor | Read the audit log (view, verify, export) and the user list. No clinical data. |
+| Administrator | Everything, including approving requests, roles, disable/unlock, password and MFA resets. |
+
+Every account needs MFA. Sessions end after 15 minutes of inactivity. Accounts lock for 15 minutes after 5 failed sign-ins. Every sign-in, access denial, account change and calculation is written to the audit log.
+
+> **HIPAA.** Render signs a BAA only for HIPAA-enabled workspaces, which need the **Scale or Enterprise** plan. Pro is not enough. Until the BAA is signed, use the app only with synthetic or non-PHI inputs.
 
 **Switching from demo to Mayo-trained models.** Either option works:
 - Commit the bundle under `models/mcp-YYYY-MM/` and set `MODEL_DIR` to that path, **or**
@@ -172,7 +191,7 @@ Prisma owns the Render Postgres schema. The FastAPI app reads and writes through
 
 | File | Purpose |
 |---|---|
-| `prisma/schema.prisma` | Tables `users` and `assessments`. Keep in step with `app/db.py`; `tests/test_postgres.py` checks it. |
+| `prisma/schema.prisma` | Tables `users`, `auth_sessions`, `audit_events`, `auth_throttle` and `assessments`. Keep in step with `app/db.py`; `tests/test_postgres.py` checks it. |
 | `prisma/migrations/` | Versioned SQL migrations, applied by `prisma migrate deploy`. |
 | `prisma.config.mjs` | Prisma 7 config; reads `DATABASE_URL`. |
 | `scripts/db_migrate.py` | Render `preDeployCommand`. It migrates a fresh database, or adopts tables created by the earlier app version (rows kept) and then migrates. |
@@ -188,10 +207,10 @@ Render applies the migration before the next deploy. CI fails if the migrations 
 
 ```bash
 pip install -r requirements.txt
-ADMIN_USERNAME=admin ADMIN_PASSWORD=change-me-12345 uvicorn app.main:app --reload
-# open http://localhost:8000  — API docs at /docs
+ADMIN_USERNAME=admin@example.org ADMIN_PASSWORD='a-long-local-passphrase' uvicorn app.main:app --reload
+# open http://localhost:8000 — sign in, enrol MFA; API docs at /docs (disabled when APP_ENV=production)
 pip install -r requirements-dev.txt
-pytest -q                                  # 39 tests (+3 Postgres tests when TEST_DATABASE_URL is set)
+pytest -q                                  # 72 tests (+4 Postgres tests when TEST_DATABASE_URL is set)
 
 # retrain the demo bundle
 pip install pyarrow
@@ -202,7 +221,13 @@ python -m training.train --data data/synthetic.parquet --provenance synthetic-de
 ## What changed from the previous version
 
 - **Risk numbers.** Before, they came from fixed multipliers in the browser. The C-statistic was `Math.random()` and the CIs were constants. Now every number comes from a trained model or a published equation, and the C-statistic shown is the measured hold-out value.
-- **Logins.** Before, they were hard-coded in page source. Now they're server-side, with hashed passwords and expiring tokens. **Retire the old passwords.**
+- **Logins.** Before, they were hard-coded in page source. Now:
+  - accounts are requested and then approved, and every account has MFA;
+  - roles control access;
+  - sessions are server-side and time out;
+  - all activity is audited.
+
+  **Retire the old passwords.**
 - **New features:**
   - per-patient "what drives this risk" explanations;
   - separate endpoints (ischemic/hemorrhagic/TIA, HFrEF/HFpEF);

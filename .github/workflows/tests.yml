@@ -66,6 +66,7 @@ jobs:
           python scripts/db_migrate.py
           npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
           test "$(psql "$DATABASE_URL" -tAc "SELECT inputs->>'sbp' FROM assessments")" = "140"
+          test "$(psql "$DATABASE_URL" -tAc "SELECT status FROM users WHERE username = 'legacy'")" = "active"
       - name: App against the Prisma-managed database
         env: { TEST_DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/fresh" }
         run: pytest -q tests/test_postgres.py

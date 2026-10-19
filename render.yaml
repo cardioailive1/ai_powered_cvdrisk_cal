@@ -3,6 +3,10 @@
 # compute plan names (https://render.com/docs/blueprint-spec). The Postgres schema is managed by Prisma
 # (prisma/schema.prisma + prisma/migrations), applied by the preDeployCommand. The Render web app never receives patient
 # data: it only serves trained model bundles exported from the Mayo Clinic Platform workspace.
+#
+# HIPAA: Render signs a Business Associate Agreement only for HIPAA-enabled workspaces, which need a Scale or
+# Enterprise plan (Pro is not enough; https://render.com/docs/hipaa-compliance). Until that is in place, do not
+# enter real patient information. See docs/SECURITY_COMPLIANCE.md.
 services:
   - type: web
     name: cardioai-cvd-risk
@@ -30,16 +34,35 @@ services:
         value: prisma
       - key: APP_ENV
         value: production
-      - key: SECRET_KEY              # shared by all instances so sessions work behind the load balancer
+      - key: SECRET_KEY              # shared by all instances: signs MFA challenges, derives CSRF tokens
+        generateValue: true
+      - key: MFA_ENCRYPTION_KEY      # encrypts TOTP secrets at rest; keep it when rotating SECRET_KEY
         generateValue: true
       - key: DATABASE_URL            # private-network URL (the database accepts no public connections)
         fromDatabase:
           name: cardioai-db
           property: connectionString
       - key: ADMIN_USERNAME
-        sync: false                  # set in the Render dashboard
+        sync: false                  # first administrator's email; created once at startup if it does not exist
       - key: ADMIN_PASSWORD
-        sync: false                  # set in the Render dashboard (12+ chars)
+        sync: false                  # 12+ chars; MFA enrolment is forced at first sign-in. Change it in the app afterwards
+      # --- accounts, sessions and sign-in protection (app/config.py has the defaults)
+      - key: SIGNUP_MODE
+        value: approval              # approval: anyone may request an account, an admin approves it | closed: admins only
+      - key: SIGNUP_ALLOWED_DOMAINS
+        value: ""                    # e.g. "cardioailive.com,mayo.edu" to restrict who may request an account
+      - key: REQUIRE_MFA
+        value: "true"
+      - key: SESSION_IDLE_MINUTES
+        value: "15"                  # automatic logoff
+      - key: SESSION_MAX_HOURS
+        value: "12"
+      - key: LOCKOUT_THRESHOLD
+        value: "5"
+      - key: LOCKOUT_MINUTES
+        value: "15"
+      - key: ASSESSMENT_RETENTION_DAYS
+        value: "365"
       # Model bundle: either commit it under models/ and point MODEL_DIR there,
       # or host the .tar.gz privately and set MODEL_BUNDLE_URL (+ token).
       - key: MODEL_DIR

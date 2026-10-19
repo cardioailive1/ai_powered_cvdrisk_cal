@@ -1,18 +1,5 @@
-import os
-import sys
-from pathlib import Path
+import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-os.environ.setdefault("DATABASE_URL", "sqlite:///" + str(ROOT / "test.db"))
-os.environ.setdefault("ADMIN_USERNAME", "admin")
-os.environ.setdefault("ADMIN_PASSWORD", "test-password-123")
-os.environ.setdefault("MODEL_DIR", str(ROOT / "models" / "synthetic-demo"))
-
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from app.main import app  # noqa: E402
 from cardioai_core.equations import cha2ds2_vasc, charge_af, pooled_cohort_equations  # noqa: E402
 from training.imaging_nlp import extract_cac, extract_lvef  # noqa: E402
 
@@ -48,27 +35,15 @@ def test_imaging_nlp():
     assert extract_lvef("Left ventricular ejection fraction 55 %.") == 55
 
 
-# --- API ----------------------------------------------------------------------
+# --- API (sign-in flow and RBAC are covered in test_auth.py) ---------------------
 @pytest.fixture(scope="module")
-def client():
-    db = ROOT / "test.db"
-    if db.exists():
-        db.unlink()
-    with TestClient(app) as c:
-        yield c
-    if db.exists():
-        db.unlink()
+def client(app_started):
+    return app_started[1]
 
 
 @pytest.fixture(scope="module")
-def auth(client):
-    r = client.post("/api/auth/login", json={"username": "admin", "password": "test-password-123"})
-    assert r.status_code == 200
-    return {"Authorization": "Bearer " + r.json()["token"]}
-
-
-def test_login_rejects_bad_password(client):
-    assert client.post("/api/auth/login", json={"username": "admin", "password": "nope"}).status_code == 401
+def auth(admin):
+    return admin
 
 
 def test_predict_requires_auth(client):
@@ -80,8 +55,8 @@ PATIENT = dict(age=62, sex="male", race="white", height_cm=178, weight_kg=92, sb
 
 
 @pytest.mark.parametrize("calc", ["ami", "stroke", "hf", "scd", "af"])
-def test_predict_all_calculators(client, auth, calc):
-    r = client.post("/api/predict", json={"calculator": calc, "patient": PATIENT}, headers=auth)
+def test_predict_all_calculators(auth, calc):
+    r = auth.post("/api/predict", json={"calculator": calc, "patient": PATIENT})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["primary"] and 0 < body["primary"]["risk"] < 1
@@ -90,24 +65,24 @@ def test_predict_all_calculators(client, auth, calc):
     assert body["recommendations"]
 
 
-def test_higher_risk_profile_scores_higher(client, auth):
+def test_higher_risk_profile_scores_higher(auth):
     low = dict(PATIENT, age=40, smoking="never", diabetes="none", sbp=115, total_chol=170, hdl=60, hypertension=False)
-    r_low = client.post("/api/predict", json={"calculator": "ami", "patient": low}, headers=auth).json()
-    r_high = client.post("/api/predict", json={"calculator": "ami", "patient": PATIENT}, headers=auth).json()
+    r_low = auth.post("/api/predict", json={"calculator": "ami", "patient": low}).json()
+    r_high = auth.post("/api/predict", json={"calculator": "ami", "patient": PATIENT}).json()
     assert r_high["primary"]["risk"] > r_low["primary"]["risk"]
 
 
-def test_af_model_not_applied_to_known_af(client, auth):
-    r = client.post("/api/predict", json={"calculator": "af", "patient": dict(PATIENT, afib=True)}, headers=auth).json()
+def test_af_model_not_applied_to_known_af(auth):
+    r = auth.post("/api/predict", json={"calculator": "af", "patient": dict(PATIENT, afib=True)}).json()
     assert r["applicable"] is False
 
 
-def test_validation_errors(client, auth):
-    r = client.post("/api/predict", json={"calculator": "ami", "patient": dict(PATIENT, age=7, hdl=300)}, headers=auth)
+def test_validation_errors(auth):
+    r = auth.post("/api/predict", json={"calculator": "ami", "patient": dict(PATIENT, age=7, hdl=300)})
     assert r.status_code == 422 and len(r.json()["errors"]) >= 2
 
 
-def test_meta_and_models(client, auth):
-    m = client.get("/api/meta", headers=auth).json()
+def test_meta_and_models(auth):
+    m = auth.get("/api/meta").json()
     assert set(m["calculators"]) == {"ami", "stroke", "hf", "scd", "af"} and m["model"]["is_demo"]
-    assert client.get("/api/models", headers=auth).status_code == 200
+    assert auth.get("/api/models").status_code == 200

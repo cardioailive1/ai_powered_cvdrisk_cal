@@ -839,3 +839,69 @@ button:active::before {
 .history-item{display:flex;justify-content:space-between;font-size:.82rem;color:var(--text-secondary);padding:.4rem 0;border-bottom:1px solid var(--border)}
 .history-item:last-child{border-bottom:none}
 @media (max-width:700px){.logout-btn{top:1rem;right:1rem;padding:.5rem 1rem}.user-chip{display:none}.container{padding:1rem}h1{font-size:1.8rem}.form-section{padding:1.25rem}}
+
+/* ---------------- sign-in gate, navigation, account & admin pages ---------------- */
+.login-screen{overflow-y:auto;align-items:flex-start;padding:3vh 0}
+.login-box{margin:auto;max-width:480px;padding:2.25rem 2.5rem}
+.login-logo{width:64px;height:64px;margin-bottom:1.25rem;font-size:2rem}
+.auth-switch{margin-top:1.25rem;text-align:center;font-size:.88rem;color:var(--text-muted)}
+.auth-switch a,.terms a{color:var(--accent)}
+.auth-text{color:var(--text-secondary);font-size:.92rem;margin-bottom:1rem}
+.auth-banner{margin-top:1.75rem;font-size:.75rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:1rem;text-align:left}
+.info-message{background:rgba(39,174,96,.15);border:1px solid var(--success);color:#9be7b9;padding:.75rem;border-radius:8px;margin-bottom:1rem;font-size:.875rem;text-align:left}
+.terms{display:flex;gap:.6rem;align-items:flex-start;font-size:.8rem;color:var(--text-secondary);margin:.25rem 0 .5rem;text-align:left}
+.terms input{margin-top:.2rem;flex:none}
+.pw-meter{height:4px;background:var(--bg-secondary);border-radius:2px;margin-top:.4rem;overflow:hidden}
+.pw-meter span{display:block;height:100%;width:0;transition:width .2s}
+.pw-meter .weak{background:var(--danger)}.pw-meter .ok{background:var(--accent)}.pw-meter .strong{background:var(--success)}
+.code-input{font-family:'IBM Plex Mono',monospace;font-size:1.4rem;letter-spacing:.3em;text-align:center}
+.qr-box{display:flex;justify-content:center;margin:.5rem 0 1rem}
+.qr-box img{background:#fff;border-radius:8px;padding:6px}
+.secret{font-family:'IBM Plex Mono',monospace;color:var(--text-primary);word-break:break-all}
+.recovery-codes{font-family:'IBM Plex Mono',monospace;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:1rem;line-height:1.8;text-align:center;margin-bottom:.75rem;white-space:pre-wrap;color:var(--text-primary)}
+.topbar{position:sticky;top:0;z-index:200;display:flex;align-items:center;gap:1.25rem;padding:.65rem 1.5rem;background:rgba(10,14,39,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.topbar .brand{font-weight:700;color:var(--primary);white-space:nowrap}
+.topbar .tabs{display:flex;gap:.25rem;flex:1;flex-wrap:wrap}
+.tab{background:none;border:1px solid transparent;color:var(--text-secondary);padding:.45rem .9rem;border-radius:8px;font:inherit;font-size:.9rem;cursor:pointer}
+.tab:hover{color:var(--text-primary);border-color:var(--border)}
+.tab.active{color:var(--text-primary);background:var(--bg-tertiary);border-color:var(--border)}
+.badge{display:inline-block;min-width:1.3em;padding:0 .35em;margin-left:.25rem;border-radius:999px;background:var(--primary);color:#fff;font-size:.72rem;text-align:center}
+.topbar .who{display:flex;align-items:center;gap:.75rem}
+.topbar .user-chip{position:static;font-size:.85rem;color:var(--text-muted)}
+button.small,.small{padding:.45rem .9rem;font-size:.85rem;border-radius:8px;cursor:pointer;flex:none;font-weight:600}
+.btn-secondary.small{background:var(--bg-tertiary);color:var(--text-primary);border:1px solid var(--border)}
+.btn-primary.small{border:none}
+.linkbtn{text-decoration:none;display:inline-block}
+.container.narrow{max-width:900px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:.75rem 1.5rem}
+.kv span{display:block;font-size:.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em}
+.kv b{font-weight:500;color:var(--text-primary);word-break:break-word}
+.ok-text{color:#9be7b9}.bad-text{color:var(--danger)}
+.inline-msg{font-size:.85rem;margin:.5rem 0;min-height:1.2em}
+.inline-msg.ok{color:#9be7b9}.inline-msg.bad{color:var(--danger)}
+.inline-form{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.inline-form .form-input{width:auto;flex:1 1 180px;padding:.6rem .8rem;font-size:.9rem}
+.role-select{background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:8px;padding:.5rem .6rem;font:inherit;font-size:.85rem}
+.table-wrap{overflow-x:auto}
+.data-table{width:100%;border-collapse:collapse;font-size:.84rem}
+.data-table th{text-align:left;color:var(--text-muted);font-weight:500;padding:.5rem .6rem;border-bottom:1px solid var(--border);white-space:nowrap}
+.data-table td{padding:.5rem .6rem;border-bottom:1px solid var(--border);color:var(--text-secondary);vertical-align:top}
+.data-table td.actions{display:flex;gap:.35rem;flex-wrap:wrap}
+.data-table td.details{font-family:'IBM Plex Mono',monospace;font-size:.72rem;max-width:340px;word-break:break-all}
+.data-table tr.row-bad td{background:rgba(231,76,60,.06)}
+.pill{display:inline-block;padding:.05rem .5rem;border-radius:999px;font-size:.72rem;border:1px solid var(--border);color:var(--text-secondary)}
+.pill.ok{border-color:var(--success);color:#9be7b9}.pill.bad{border-color:var(--danger);color:#f5a59c}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:10000;padding:1rem}
+.modal-box{background:var(--bg-tertiary);border:1px solid var(--border);border-radius:14px;padding:1.75rem;max-width:440px;width:100%;color:var(--text-secondary)}
+.modal-box h3{color:var(--text-primary);margin-bottom:.5rem}
+#calc-btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+@media (max-width:700px){.topbar{padding:.5rem 1rem}.topbar .who .user-chip{display:none}.login-box{padding:1.5rem 1.25rem}}
+@media print{.topbar,#idle-modal{display:none!important}}
+.terms input[type=checkbox]{width:auto;height:auto;padding:0}
+.terms span{flex:1}
+.login-form .form-group{margin-bottom:1.1rem}
+.inline-form select,.data-table select,.role-select{width:auto}
+.data-table td.actions{display:table-cell;white-space:nowrap}
+.data-table td.actions button{margin:0 .3rem .3rem 0}
+.results-panel{top:5rem;max-height:calc(100vh - 6rem)}
+.pill{white-space:nowrap}
