@@ -24,7 +24,7 @@ Each phase ends with a **✅ Done when** checkpoint and lists **⛔ Stop if** co
 | 0.1 | Recruit the reader team: **1 lead cardiologist + 2–4 cardiologists**. Mayo Clinic staff **cannot** annotate in this environment. | CardioAI |
 | 0.2 | Request workspace seats for each reader with a **`@cardioailive.com`** e-mail (up to 5 annotator seats). Ask MCP whether these are separate from data-scientist seats. | DS → MCP |
 | 0.3 | Get answers to the open questions (see [Appendix A](#appendix-a--questions-for-mayo-clinic-platform)). Phase 2 answers most of them from the data. | DS → MCP |
-| 0.4 | The clinical lead reads the **Clinician Lead Guide** and the **Models Sheet** and agrees the outcome definitions, subtype rules and gate thresholds. | CL |
+| 0.4 | The clinical lead reads the **Clinician Lead Guide** (shared separately) and the **Models Sheet** ([`docs/CardioAI_Models_Sheet.xlsx`](CardioAI_Models_Sheet.xlsx)) and agrees the outcome definitions, subtype rules and gate thresholds. | CL |
 | 0.5 | Book reader time. Phase 6 gives the estimate; plan for roughly **50–100 hours per reader** over 3–6 weeks. | CardioAI |
 
 ✅ **Done when** every reader can log in to the workspace and the CL has approved the definitions.
