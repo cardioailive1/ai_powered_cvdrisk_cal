@@ -14,7 +14,7 @@ services:
       maxInstances: 3
       targetCPUPercent: 70
       targetMemoryPercent: 80
-    autoDeployTrigger: commit        # switch to checksPass once the GitHub Actions "tests" workflow runs on this repo
+    autoDeployTrigger: checksPass    # deploy only after the GitHub Actions "tests" workflow (pytest + prisma) passes
     buildCommand: pip install -r requirements.txt && npm ci
     preDeployCommand: python scripts/db_migrate.py   # Prisma migrations (prisma migrate deploy) before each deploy
     startCommand: >-
