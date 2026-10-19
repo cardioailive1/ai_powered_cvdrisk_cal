@@ -1,28 +1,45 @@
 # Render Blueprint — New + > Blueprint > connect this repo.
+# Written for a Render **Pro workspace** (autoscaling, Postgres high availability) using the current
+# compute plan names (https://render.com/docs/blueprint-spec). The Postgres schema is managed by Prisma
+# (prisma/schema.prisma + prisma/migrations), applied by the preDeployCommand. The Render web app never receives patient
+# data: it only serves trained model bundles exported from the Mayo Clinic Platform workspace.
 services:
   - type: web
     name: cardioai-cvd-risk
     runtime: python
-    plan: starter
     region: ohio
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
+    plan: 1c-2g                      # 1 CPU / 2 GB per instance; models are small gradient-boosted trees
+    scaling:                         # autoscaling needs a Pro workspace or higher
+      minInstances: 1
+      maxInstances: 3
+      targetCPUPercent: 70
+      targetMemoryPercent: 80
+    autoDeployTrigger: checksPass    # deploy only after the GitHub Actions "tests" workflow (pytest + prisma) passes
+    buildCommand: pip install -r requirements.txt && npm ci
+    preDeployCommand: python scripts/db_migrate.py   # Prisma migrations (prisma migrate deploy) before each deploy
+    startCommand: >-
+      uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+      --proxy-headers --forwarded-allow-ips='*'
     healthCheckPath: /healthz
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.8
+      - key: NODE_VERSION            # Prisma 7 needs Node >= 22.12 (also pinned in .node-version)
+        value: 22.18.0
+      - key: DB_SCHEMA_MANAGER       # Prisma owns the Postgres schema; the app never creates tables itself
+        value: prisma
       - key: APP_ENV
         value: production
-      - key: SECRET_KEY
+      - key: SECRET_KEY              # shared by all instances so sessions work behind the load balancer
         generateValue: true
-      - key: DATABASE_URL
+      - key: DATABASE_URL            # private-network URL (the database accepts no public connections)
         fromDatabase:
           name: cardioai-db
           property: connectionString
       - key: ADMIN_USERNAME
-        sync: false          # set in the Render dashboard
+        sync: false                  # set in the Render dashboard
       - key: ADMIN_PASSWORD
-        sync: false          # set in the Render dashboard (12+ chars)
+        sync: false                  # set in the Render dashboard (12+ chars)
       # Model bundle: either commit it under models/ and point MODEL_DIR there,
       # or host the .tar.gz privately and set MODEL_BUNDLE_URL (+ token).
       - key: MODEL_DIR
@@ -32,13 +49,18 @@ services:
       - key: MODEL_BUNDLE_TOKEN
         sync: false
       - key: ALLOW_DEMO_MODELS
-        value: "true"        # set to "false" once the Mayo-trained bundle is live
+        value: "true"                # set to "false" once the Mayo-trained bundle is live
       - key: STORE_ASSESSMENTS
         value: "true"
 
 databases:
   - name: cardioai-db
-    plan: basic-256mb
-    region: ohio
+    region: ohio                     # must match the web service for private networking; fixed after creation
+    plan: 1c-4g                      # >= 1 CPU so high availability can be switched on
+    diskSizeGB: 15
+    postgresMajorVersion: "17"       # fixed after creation
     databaseName: cardioai
     user: cardioai
+    ipAllowList: []                  # private network only: no connections from the public internet
+    highAvailability:
+      enabled: false                 # Pro workspace: set true for a hot standby (roughly doubles database cost)

@@ -20,7 +20,7 @@ cardioai/
 │   └── bundle.py           Model bundle loader, prediction, per-patient explanations
 ├── training/               Runs INSIDE Mayo Clinic Platform_Discover
 │   ├── codesets.py         ICD-9/10, CPT, ICD-10-PCS, LOINC, ATC code lists (clinical review point)
-│   ├── extract.py          OMOP CDM → raw curation dataset (candidates + evidence; BigQuery SQL)
+│   ├── extract.py          OMOP CDM → raw curation dataset (candidates + evidence; Spark SQL)
 │   ├── sql/                Rendered SQL for review
 │   ├── nlp.py              Clinical mention detection with negation / history / hypothetical context
 │   ├── labeling.py         Episodes, labelling functions, label model, subtypes (auto-labelling)
@@ -83,7 +83,7 @@ Gate failures can only be waived by the accountable role, with a justification. 
 # in the Discover workspace
 pip install -r requirements-training.txt
 python -m training.extract --render-only                     # review SQL (training/sql/) — no data access
-python -m training.extract --cdm <proj>.<omop> --scratch <proj>.<scratch> --out data/raw
+python -m training.extract --cdm <catalog>.<omop_schema> --native-dataset <catalog>.<native_schema> --out data/raw
 
 python -m curation.pipeline init --data-dir data --provenance mayo-clinic-platform
 python -m curation.pipeline user-add dsmith  --role data_scientist    --full-name "D Smith"
@@ -107,6 +107,8 @@ tar -czf mcp-bundle.tar.gz -C bundles mcp-$(date +%Y-%m)     # submit for Mayo e
 
 **Training.** `train.py` refuses Mayo-provenance data without a release, refuses a release whose dataset hash doesn't match, and records the label governance in the model bundle. The Render app then shows *"Labels: cardiologist-adjudicated (n cases, κ range)"*.
 
+**Step-by-step execution in the workspace:** see [`docs/RUNBOOK_MCP.md`](docs/RUNBOOK_MCP.md).
+
 **Before going live, review with your team:**
 - the code lists in `training/codesets.py` (ICD, CPT, ICD-10-PCS, LOINC; the `PRIMARY_STATUS` concept IDs and the default troponin URLs);
 - the labelling-function weights in `training/labeling.py`;
@@ -116,6 +118,30 @@ tar -czf mcp-bundle.tar.gz -C bundles mcp-$(date +%Y-%m)     # submit for Mayo e
 - Patients with **no** candidate code and no trigger procedure can't be found, so sensitivity of the code + procedure net is not measured.
 - Out-of-hospital SCD without an encounter is under-captured.
 - Rule-based NLP needs extending to your report templates. The annotation review measures how well it works.
+
+### Mayo Clinic Platform environment (confirmed by MCP, A. Resnick, 14 Oct 2026)
+
+| Topic | Answer from Mayo Clinic Platform | What this build does |
+|---|---|---|
+| Lab definitions | Mayo Clinic Laboratories catalogue ("Clinical & Interpretive", "Fees & Codes") | Troponin T Gen 5 (TRPS, LOINC 67151-1): sex-specific URL ≤15 ng/L men, ≤10 ng/L women, plus Mayo's rise rule (≥10 ng/L in 2 h or ≥12 ng/L in 6 h). NT-proBNP (PBNP1, LOINC 83107-3): age/sex reference limits shown to adjudicators. |
+| Browser apps in the workspace | Yes, on localhost via JupyterLab | Curation workbench: `python -m curation.server --host 127.0.0.1 --port 8090`. URLs are relative, so it works behind the Jupyter proxy. |
+| pip installs | Allowed | `pip install -r requirements-training.txt` |
+| Docker | Allowed, but `docker pull` doesn't work; images must be self-contained | Not needed: the pipeline is pure Python. |
+| Desktop (VNC), 3D Slicer, ITK-SNAP, MONAI Label | Installed / pip-installable | Not needed for these calculators. They're only relevant if image-level outlining is added later. |
+| Readers | 5 extra annotator seats, each needing a **cardioailive.com** e-mail. **Mayo staff cannot annotate.** | Enforced: cardiologist accounts need `@cardioailive.com`, at most 5 active readers (`reader_policy` in governance). Plan staffing with `python -m curation.pipeline plan-workload`. |
+| Compute | Shared A100 40 GB reservations | Not needed: the models are gradient-boosted trees on CPU (minutes). |
+| Report text | Radiology in `FACT_RADIOLOGY` (also OMOP `note`); echo in `FACT_ECHO_TEST.ECHO_NOTE` | Radiology comes via OMOP `note`. Echo comes from `FACT_ECHO_TEST` with `--native-dataset`; three columns are still to confirm (below). Duplicates across sources are removed. |
+| Existing annotations | None. Labels come from radiology reports and echo notes. | Matches the design: report/echo-derived labels, verified by cardiologists. |
+| Public imaging datasets | Keep outside the environment | Not used. |
+
+**Still to confirm with Mayo Clinic Platform** (training session):
+1. In `FACT_ECHO_TEST`: the patient key column, the echo date/time column, and how that key maps to OMOP `person_id`. Set these in `training/native_sources.json`. The extract refuses to run until they are set.
+2. The Spark catalog/schema names for the OMOP tables and the native `FACT_*` tables, and whether `note` holds all radiology reports.
+3. Which `condition_status` / `condition_type` concepts mark the primary diagnosis (`PRIMARY_STATUS`).
+4. The date Mayo switched from conventional troponin T to Gen 5, and whether `measurement.range_high` is populated.
+5. How complete death data is (deaths outside Mayo), which matters for sudden cardiac death.
+6. Model export review: the cell-suppression threshold (this build suppresses counts <11) and the approval steps.
+7. Whether the 5 annotator seats are separate from the data scientists' seats.
 
 ### Try the whole pipeline on synthetic data (no patient data)
 
@@ -140,13 +166,32 @@ The simulator refuses to run unless the data folder carries the `SYNTHETIC` mark
 
 Then set `ALLOW_DEMO_MODELS=false`. The demo banner disappears automatically once the bundle's provenance is `mayo-clinic-platform`. Confirm your Mayo agreement allows hosting the exported model this way.
 
+### Database schema (Prisma)
+
+Prisma owns the Render Postgres schema. The FastAPI app reads and writes through SQLAlchemy and never creates tables in production (`DB_SCHEMA_MANAGER=prisma`).
+
+| File | Purpose |
+|---|---|
+| `prisma/schema.prisma` | Tables `users` and `assessments`. Keep in step with `app/db.py`; `tests/test_postgres.py` checks it. |
+| `prisma/migrations/` | Versioned SQL migrations, applied by `prisma migrate deploy`. |
+| `prisma.config.mjs` | Prisma 7 config; reads `DATABASE_URL`. |
+| `scripts/db_migrate.py` | Render `preDeployCommand`. It migrates a fresh database, or adopts tables created by the earlier app version (rows kept) and then migrates. |
+
+**Changing the schema:**
+1. Edit `prisma/schema.prisma` and `app/db.py` together.
+2. Run `npm run db:new -- --name <change>` against a dev database. This writes a new migration folder.
+3. Commit both files.
+
+Render applies the migration before the next deploy. CI fails if the migrations and the schema drift apart.
+
 ## 3. Run locally
 
 ```bash
 pip install -r requirements.txt
 ADMIN_USERNAME=admin ADMIN_PASSWORD=change-me-12345 uvicorn app.main:app --reload
 # open http://localhost:8000  — API docs at /docs
-pytest -q                                  # 32 tests (incl. full governed pipeline)
+pip install -r requirements-dev.txt
+pytest -q                                  # 39 tests (+3 Postgres tests when TEST_DATABASE_URL is set)
 
 # retrain the demo bundle
 pip install pyarrow

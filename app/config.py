@@ -24,6 +24,9 @@ class Settings:
     elif _db.startswith("postgresql://"):
         _db = "postgresql+psycopg://" + _db[len("postgresql://"):]
     database_url = _db
+    # "prisma": the schema is owned by Prisma migrations (Render runs `npx prisma migrate deploy` before each
+    # deploy); the app only checks the tables exist. "sqlalchemy" (default): create tables on start (local/dev).
+    schema_manager = os.getenv("DB_SCHEMA_MANAGER", "sqlalchemy").strip().lower()
 
     model_dir = os.getenv("MODEL_DIR", str(ROOT / "models" / "synthetic-demo"))
     model_bundle_url = os.getenv("MODEL_BUNDLE_URL", "")          # optional .tar.gz fetched at startup

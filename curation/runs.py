@@ -62,7 +62,8 @@ def create_label_run(db: Session, data_dir, username: str, label_model_path: str
     model["thresholds"] = gov["label_thresholds"]
     raw = load_raw(data_dir)
     cands = labeling.build_episodes(raw["candidate_codes"], raw["evidence_procedures"], raw["features"])
-    ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], raw["event_notes"])
+    ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], raw["event_notes"],
+                           dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
     labels = labeling.mark_relevance(labeling.label_candidates(cands, ev, raw["features"], model), gov["definitions"])
 
     run_id = _new_id("LR")
@@ -139,7 +140,8 @@ class _RunData:
         codes = raw["candidate_codes"].copy()
         codes["event_date"] = pd.to_datetime(codes["event_date"])
         self.codes = {k: v.sort_values("event_date") for k, v in codes.groupby(["person_id", "family"])}
-        self.ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], raw["event_notes"])
+        self.ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], raw["event_notes"],
+                                    dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
         bn = raw["baseline_imaging_notes"].copy()
         bn["note_id"] = bn["note_id"].astype(str)
         self.baseline_notes = bn.set_index("note_id")
@@ -149,6 +151,7 @@ class _RunData:
         c = self.by_id.loc[candidate_id]
         fam, pid, d = c["family"], c["person_id"], pd.Timestamp(c["event_date"])
         f = self.features.loc[pid]
+        age = _clean(f.get("age"))
         w = DISPLAY_WINDOW[fam]
         lo, hi = d + pd.Timedelta(days=w[0]), d + pd.Timedelta(days=w[1])
         codes = self.codes.get((pid, fam))
@@ -164,12 +167,19 @@ class _RunData:
         labs = []
         for x in self.ev.labs_for(pid, d, (w[0], min(w[1], 7))):
             url = x.get("url")
-            flag = None
+            flag, ref = None, _clean(x.get("range_high"))
             if isinstance(url, float) and not math.isnan(url) and url > 0:
                 flag = "H" if x["value_n"] > url else "N"
+                ref = ref if ref is not None else round(url, 1)
+            elif x["analyte"] == "nt_probnp" and age is not None:
+                from training.codesets import NT_PROBNP_REF
+                a_ev = age + c["days_from_index"] / 365.25
+                lim = next((m if f.get("sex") == "male" else fm for lo, hi, m, fm in NT_PROBNP_REF if lo <= a_ev <= hi), None)
+                if lim is not None:
+                    flag, ref = ("H" if x["value_n"] > lim else "N"), lim
             labs.append({"time": pd.Timestamp(x["measured_at"]).isoformat(timespec="minutes"),
                          "day": (pd.Timestamp(x["measured_at"]).normalize() - d).days, "analyte": x["analyte"],
-                         "value": _clean(x["value"]), "unit": x["unit"], "ref_high": _clean(x.get("range_high")), "flag": flag})
+                         "value": _clean(x["value"]), "unit": x["unit"], "ref_high": ref, "flag": flag})
         procs = [{"date": pd.Timestamp(x["procedure_date"]).date().isoformat(), "day": (pd.Timestamp(x["procedure_date"]) - d).days,
                   "category": x["category"], "code": x["code"]} for x in self.ev.procs_for(pid, d, (min(w[0], -30) if fam == "af" else w[0], w[1]))]
         keys = labeling.MENTION_KEYS[fam]

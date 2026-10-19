@@ -172,3 +172,38 @@ def test_audit_log_tamper_detected(env):
     with env["S"]() as db:
         v = verify_log(db)
     assert not v["ok"] and v["first_bad_id"] == 3
+
+
+# ---------------------------------------------------------------- Mayo Clinic Platform specifics
+def test_mayo_hs_tnt_sex_specific_url_and_delta():
+    from training.labeling import normalize_labs, troponin_summary
+    t0 = pd.Timestamp("2018-01-01 08:00")
+    labs = pd.DataFrame({"person_id": [1, 1, 2], "analyte": ["hs_troponin_t"] * 3, "unit": ["ng/L"] * 3,
+                         "measured_at": [t0, t0 + pd.Timedelta(hours=2), t0], "value": [12.0, 23.0, 12.0], "range_high": [None] * 3})
+    L = normalize_labs(labs, {1: "female", 2: "male"})
+    assert L["url"].tolist() == [10.0, 10.0, 15.0]                     # Mayo TRPS: F <=10, M <=15 ng/L
+    recs = L[L.person_id == 1].to_dict("records")
+    assert troponin_summary(recs)["rise_fall"]                          # +11 ng/L in 2 h above URL
+    assert not troponin_summary(L[L.person_id == 2].to_dict("records"))["elevated"]   # 12 ng/L normal for a man
+
+
+def test_reader_policy(env):
+    c, h = env["c"], env["h"]
+    bad = c.post("api/users", json={"username": "drx", "role": "cardiologist", "email": "drx@gmail.com", "password": PW}, headers=h["admin"])
+    assert bad.status_code == 400 and "cardioailive.com" in bad.json()["detail"]
+    ok = c.post("api/users", json={"username": "drx", "role": "cardiologist", "email": "drx@cardioailive.com", "password": PW}, headers=h["admin"])
+    assert ok.status_code == 201
+    fifth = c.post("api/users", json={"username": "dry", "role": "cardiologist", "email": "dry@cardioailive.com", "password": PW}, headers=h["admin"])
+    assert fifth.status_code == 201                                      # card1, card2, lead1, drx, dry = 5 seats
+    full = c.post("api/users", json={"username": "drz", "role": "cardiologist", "email": "drz@cardioailive.com", "password": PW}, headers=h["admin"])
+    assert full.status_code == 400 and "seats" in full.json()["detail"]
+    assert c.get("api/users", headers=h["admin"]).json()["seats_used"] <= 5
+
+
+def test_echo_native_config_requires_confirmation():
+    from training.extract import load_native_config, render_native_sql, unconfirmed
+    cfg = load_native_config("/nonexistent.json")
+    assert len(unconfirmed(cfg)) == 3
+    cfg["echo"].update(patient_column="PATIENT_CLINIC_NUMBER", date_column="ECHO_DTM", person_bridge="person_source_value")
+    sql = render_native_sql("p.native", "p.omop", cfg)
+    assert not unconfirmed(cfg) and "CONFIRM" not in sql["10_echo_notes_baseline"] and "ECHO_NOTE" in sql["11_echo_notes_event"]

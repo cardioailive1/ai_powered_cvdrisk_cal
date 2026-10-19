@@ -135,7 +135,10 @@ def _stroke(b, pid, d, true_event, sub=None):
         if b.p(0.6):
             b.proc(pid, "head_mri", d + pd.Timedelta(days=1), "70553")
         if reperf:
-            b.proc(pid, "thrombolysis" if b.p(0.6) else "thrombectomy", d, "37195")
+            if b.p(0.6):
+                b.proc(pid, "thrombolysis", d, "37195")
+            else:
+                b.proc(pid, "thrombectomy", d, "61645")
         if b.p(0.9):
             txt = {"ischemic": "MRI brain: Acute infarct in the left MCA territory with restricted diffusion.",
                    "hemorrhagic": "CT head: Acute intraparenchymal hemorrhage in the right basal ganglia.",

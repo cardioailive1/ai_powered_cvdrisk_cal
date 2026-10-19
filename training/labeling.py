@@ -128,8 +128,8 @@ _TROP_FACTOR = {"ng/ml": 1000, "ug/l": 1000, "µg/l": 1000, "mcg/l": 1000, "ng/l
 _NP_FACTOR = {"pg/ml": 1, "ng/l": 1, "pmol/l": None}
 
 
-def normalize_labs(labs: pd.DataFrame) -> pd.DataFrame:
-    """Troponins -> ng/L with URL; BNP / NT-proBNP -> pg/mL."""
+def normalize_labs(labs: pd.DataFrame, sex_by_person: dict | None = None) -> pd.DataFrame:
+    """Troponins -> ng/L with (sex-specific) URL; BNP / NT-proBNP -> pg/mL."""
     if labs.empty:
         return labs.assign(value_n=[], url=[])
     L = labs.copy()
@@ -143,7 +143,9 @@ def normalize_labs(labs: pd.DataFrame) -> pd.DataFrame:
     factor = np.where(trop, f_trop, f_np).astype(float)
     L["value_n"] = L["value"] * factor
     rh = pd.to_numeric(L.get("range_high"), errors="coerce")
-    default = L["analyte"].map(cs.DEFAULT_URL_NG_L)
+    sex = L["person_id"].map(sex_by_person or {}).fillna("male")   # unknown sex -> higher (conservative) limit
+    default = [cs.DEFAULT_URL_NG_L.get(a, {}).get(sx if sx in ("male", "female") else "male", np.nan)
+               for a, sx in zip(L["analyte"], sex)]
     L["url"] = np.where(trop, np.where(rh > 0, rh * factor, default), np.nan)
     return L
 
@@ -167,10 +169,20 @@ def troponin_summary(labs: list[dict]) -> dict:
     elevated = any(r > 1 for r in ratios)
     rise_fall = False
     for analyte in {x["analyte"] for x in t}:
-        v = np.array([x["value_n"] for x in t if x["analyte"] == analyte])  # records are time-ordered
-        u = next(x["url"] for x in t if x["analyte"] == analyte)
-        if len(v) >= 2 and v.max() > u and (v.max() - v.min()) / max(v.max(), 1e-9) >= 0.2:
+        rows = [x for x in t if x["analyte"] == analyte]           # records are time-ordered
+        v = np.array([x["value_n"] for x in rows])
+        u = rows[0]["url"]
+        if len(v) < 2 or not v.max() > u:
+            continue
+        if (v.max() - v.min()) / max(v.max(), 1e-9) >= 0.2:
             rise_fall = True
+        if analyte == "hs_troponin_t":                              # Mayo TRPS absolute delta rule
+            ts = [pd.Timestamp(x["measured_at"]) for x in rows]
+            for i in range(len(rows)):
+                for j in range(i + 1, len(rows)):
+                    hrs = (ts[j] - ts[i]).total_seconds() / 3600
+                    if any(hrs <= h and abs(v[j] - v[i]) >= d for h, d in cs.HS_TNT_DELTA_NG_L):
+                        rise_fall = True
     return {"measured": True, "elevated": elevated, "rise_fall": rise_fall,
             "peak_x_url": float(max(ratios)) if ratios else None, "n": len(t)}
 
@@ -337,8 +349,8 @@ def subtype(fam: str, ctx: dict, codes: str, cardiac_surgery_before: bool) -> st
 class Evidence:
     """Per-person, time-sorted evidence index (labs, procedures, notes) for fast window lookups."""
 
-    def __init__(self, labs: pd.DataFrame, procs: pd.DataFrame, notes: pd.DataFrame):
-        self.labs = normalize_labs(labs)
+    def __init__(self, labs: pd.DataFrame, procs: pd.DataFrame, notes: pd.DataFrame, sex_by_person: dict | None = None):
+        self.labs = normalize_labs(labs, sex_by_person)
         procs = procs.copy()
         procs["procedure_date"] = pd.to_datetime(procs["procedure_date"])
         notes = notes.copy()

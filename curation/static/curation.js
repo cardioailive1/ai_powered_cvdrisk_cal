@@ -128,7 +128,9 @@
       <div class="card"><h2><span class="stage-num">2</span>Automatic audit ${S.audit ? chip(S.audit.overall) : chip("pending")}</h2>
         ${S.audit ? `<div class="kv"><span><b>${S.audit.counts.pass}</b> pass</span><span><b>${S.audit.counts.warn}</b> warnings</span><span><b>${S.audit.counts.fail}</b> failures</span><span class="muted">${esc(S.audit.id)}</span></div>
         <div class="row-actions"><a href="#/audit"><button class="btn-sm btn-secondary">Open audit review</button></a></div>` : `<p class="muted">Run <span class="mono">python -m curation.pipeline audit</span>.</p>`}</div>
-      <div class="card"><h2><span class="stage-num">3</span>Data scientist review</h2>${dsReview}</div>
+      <div class="card"><h2><span class="stage-num">3</span>Data scientist review</h2>${dsReview}
+        ${S.workload ? `<p class="muted" style="margin-top:.8rem">Expected adjudication load with ${S.workload.readers} cardiologist(s) + 1 lead (${S.workload.seats_needed}/${S.workload.seats_available} annotator seats):
+          <b>${S.workload.event_cases.toLocaleString()}</b> event cases, ≈${S.workload.reads_per_reader.toLocaleString()} reads (${S.workload.hours_per_reader} h) per cardiologist, ≈${S.workload.expected_lead_reads} lead cases. ${esc(S.workload.assumptions)}.</p>` : ""}</div>
       <div class="card"><h2><span class="stage-num">4</span>Cardiologist adjudication ${chip(m.totals.cases ? (m.totals.open + m.totals.disagreement ? "pending" : "pass") : "pending")}</h2>
         ${m.totals.cases ? `<p class="muted">Blinded double reads; disagreements go to a lead cardiologist who was not a reader. ${m.totals.final}/${m.totals.cases} cases final.</p>
         <div class="tscroll"><table class="t"><thead><tr><th>Outcome</th><th class="num">Final</th><th></th><th class="num">Awaiting lead</th><th class="num">κ</th></tr></thead><tbody>${adjRows}
@@ -338,15 +340,17 @@
         <td class="muted">${esc(JSON.stringify(e.details).slice(0, 160))}</td><td class="mono">${esc(e.hash)}</td></tr>`).join("")}</tbody></table></div></div>`;
   }
   async function viewUsers(v) {
-    const U = await api("users");
-    v.innerHTML = `<h1>Users</h1><div class="card"><div class="tscroll"><table class="t"><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Active</th></tr></thead><tbody>
-      ${U.map((u) => `<tr><td>${esc(u.username)}</td><td>${esc(u.full_name)}</td><td>${ROLE[u.role]}</td><td>${u.active ? "yes" : "no"}</td></tr>`).join("")}</tbody></table></div></div>
+    const R = await api("users"), U = R.users;
+    v.innerHTML = `<h1>Users</h1><p class="lede">Annotator seats in use: <b>${R.seats_used}/${R.seats_available}</b>. Cardiologist accounts need an <b>@${esc(R.email_domain)}</b> e-mail, matching their Mayo Clinic Platform workspace seat. Mayo Clinic staff cannot annotate in this environment.</p>
+      <div class="card"><div class="tscroll"><table class="t"><thead><tr><th>Username</th><th>Name</th><th>E-mail</th><th>Role</th><th>Active</th></tr></thead><tbody>
+      ${U.map((u) => `<tr><td>${esc(u.username)}</td><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td><td>${ROLE[u.role]}</td><td>${u.active ? "yes" : "no"}</td></tr>`).join("")}</tbody></table></div></div>
       <div class="card"><h2>Add user</h2><div class="grid2">
         <div><label>Username</label><input id="nu-u"></div><div><label>Full name</label><input id="nu-n"></div>
+        <div><label>E-mail (workspace account)</label><input id="nu-e" type="email" placeholder="name@${esc(R.email_domain)}"></div>
         <div><label>Role</label><select id="nu-r">${Object.entries(ROLE).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></div>
         <div><label>Initial password (12+ characters)</label><input id="nu-p" type="password"></div></div>
         <div class="row-actions" style="margin-top:1rem"><button class="btn-sm btn-primary" id="nu-go">Create user</button></div></div>`;
-    $("#nu-go").onclick = () => act(() => post("users", { username: $("#nu-u").value, full_name: $("#nu-n").value, role: $("#nu-r").value, password: $("#nu-p").value }), "User created");
+    $("#nu-go").onclick = () => act(() => post("users", { username: $("#nu-u").value, full_name: $("#nu-n").value, email: $("#nu-e").value, role: $("#nu-r").value, password: $("#nu-p").value }), "User created");
   }
 
   // ------------------------------------------------------------ boot

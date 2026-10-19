@@ -84,9 +84,27 @@ EVIDENCE_LOINC = {
     "bnp": ["30934-4", "42637-9"],
     "nt_probnp": ["33762-6", "83107-3"],
 }
-# Fallback 99th-percentile URLs in ng/L when measurement.range_high is missing.
-# Replace with the assay-specific values used at Mayo Clinic laboratories.
-DEFAULT_URL_NG_L = {"troponin_i": 40.0, "troponin_t": 10.0, "hs_troponin_i": 26.0, "hs_troponin_t": 14.0}
+# Upper reference limits in ng/L, used when measurement.range_high is missing.
+# hs_troponin_t: Mayo Clinic Laboratories test TRPS "Troponin T, 5th Generation, Plasma"
+#   (Roche cobas Gen 5, LOINC 67151-1): males <=15 ng/L, females <=10 ng/L (Mayo-derived, sex-specific).
+#   https://www.mayocliniclabs.com/test-catalog/overview/65832
+# Others: generic manufacturer 99th percentiles (conventional cTnT 0.01 ng/mL = 10 ng/L), used mainly for
+#   older results before the Gen 5 assay; confirm the switch-over date with Mayo Clinic Platform.
+DEFAULT_URL_NG_L = {
+    "hs_troponin_t": {"male": 15.0, "female": 10.0},
+    "troponin_t": {"male": 10.0, "female": 10.0},
+    "troponin_i": {"male": 40.0, "female": 40.0},
+    "hs_troponin_i": {"male": 34.0, "female": 16.0},
+}
+# Mayo TRPS interpretation: a rise of >=10 ng/L over 2 h or >=12 ng/L over 6 h with values above the
+# reference interval is highly suggestive of acute cardiac injury (used alongside a >=20% relative change).
+HS_TNT_DELTA_NG_L = [(2, 10.0), (6, 12.0)]
+# NT-proBNP: Mayo test PBNP1 (Roche proBNP II, LOINC 83107-3) — age/sex reference upper limits (pg/mL),
+# shown to adjudicators as H/N flags. Labelling still uses acute-HF decision cut-points (rule-in 450/900/1800
+# by age, rule-out <300), which are clinical thresholds, not reference ranges.
+#   https://www.mayocliniclabs.com/test-catalog/overview/615897
+NT_PROBNP_REF = [  # (min_age, max_age, male_upper, female_upper)
+    (19, 39, 79, 160), (40, 44, 72, 162), (45, 54, 87, 141), (55, 64, 88, 226), (65, 200, 540, 540)]
 
 # ----------------------------------------------------------------------------
 # Adjudication evidence — procedures (CPT4 / ICD10PCS). VERIFY with coding team.
@@ -110,6 +128,26 @@ PROCEDURES = {
 # nearby — used to find events the codes missed (adjudicated like any other).
 TRIGGER_PROCEDURES = {"pci": "ami", "thrombolysis": "stroke", "thrombectomy": "stroke",
                       "cpr": "scd", "cardioversion": "af"}
+
+# ----------------------------------------------------------------------------
+# Mayo Clinic Platform native tables (not OMOP) used as extra note sources.
+# Confirmed by Mayo Clinic Platform (A. Resnick, 14 Oct 2026): echo notes are in FACT_ECHO_TEST.ECHO_NOTE;
+# radiology reports are in FACT_RADIOLOGY (also mapped to OMOP note.note_text, which extract.py already uses).
+# Values starting with "CONFIRM:" are not yet confirmed: --render-only shows them, a real run refuses
+# until they are set in native_sources.json (confirm in the MCP training session).
+# ----------------------------------------------------------------------------
+NATIVE_NOTE_SOURCES = {
+    "echo": {
+        "table": "FACT_ECHO_TEST",
+        "text_column": "ECHO_NOTE",                                   # confirmed
+        "patient_column": "CONFIRM:patient key column in FACT_ECHO_TEST (e.g. PATIENT_CLINIC_NUMBER)",
+        "date_column": "CONFIRM:date/time the echo was performed",
+        "id_column": "CONFIRM:unique echo test id (or leave as row number)",
+        # how the native patient key maps to OMOP person_id
+        "person_bridge": "CONFIRM:OMOP person column holding the native patient key (e.g. person_source_value)",
+        "title": "Echocardiogram report",
+    },
+}
 
 # Regex prefilter for event-window notes (SQL side; full NLP runs in Python)
 NOTE_PREFILTER = (r"infarct|stemi|troponin|acute coronary|stroke|cva|hemorrhage|transient ischemic|\btia\b|"

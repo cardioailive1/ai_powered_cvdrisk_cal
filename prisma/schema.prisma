@@ -1,0 +1,38 @@
+// Prisma owns the Render Postgres schema for the CardioAI web app (prisma migrate deploy runs as Render's
+// preDeployCommand). The FastAPI app reads and writes these tables through SQLAlchemy (app/db.py), so the
+// column names and types here MUST stay in step with app/db.py; tests/test_postgres.py checks that.
+// The connection URL comes from DATABASE_URL via prisma.config.mjs (Prisma 7 keeps it out of this file).
+// Only the Render app database lives here. The curation workbench's SQLite database stays inside the
+// Mayo Clinic Platform workspace and is never managed by Prisma.
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           Int          @id @default(autoincrement())
+  username     String       @unique @db.VarChar(80)
+  passwordHash String       @map("password_hash") @db.VarChar(255)
+  role         String       @default("clinician") @db.VarChar(20) // clinician | admin
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  assessments  Assessment[]
+
+  @@map("users")
+}
+
+/// One calculator run. Clinical inputs only: no patient identifiers are stored.
+model Assessment {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @map("user_id")
+  calculator  String   @db.VarChar(20)
+  inputs      Json
+  results     Json
+  modelBundle String   @map("model_bundle") @db.VarChar(120)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("assessments")
+}
