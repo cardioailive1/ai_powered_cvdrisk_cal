@@ -299,45 +299,58 @@ def score(model: dict, family: str, votes: dict[str, int]) -> float:
 
 
 # ------------------------------------------------------------------ subtypes
+_HINTS: dict | None = None
+
+
+def code_hints(codes_l: list[str]) -> set[str]:
+    """Subtypes suggested by the candidate's diagnosis codes (training/code_lists/candidate_codes.csv)."""
+    global _HINTS
+    if _HINTS is None:
+        from .codelists import load
+        _HINTS = {r["code"]: r["subtype_hint"] for r in load(included_only=False) if r["subtype_hint"]}
+    return {_HINTS[c] for c in codes_l if c in _HINTS}
+
+
 def subtype(fam: str, ctx: dict, codes: str, cardiac_surgery_before: bool) -> str:
     codes_l = codes.split(";") if codes else []
+    hints = code_hints(codes_l)
     if fam == "ami":
-        if any(c.startswith("I21.A1") for c in codes_l) or _m(ctx, "type2_mi"):
+        if "type2" in hints or _m(ctx, "type2_mi"):
             return "type2"
-        if any(c[:5] in {"I21.0", "I21.1", "I21.2", "I21.3"} for c in codes_l) or (_m(ctx, "stemi") and not _m(ctx, "nstemi")):
+        if "stemi" in hints or (_m(ctx, "stemi") and not _m(ctx, "nstemi")):
             return "stemi"
-        if any(c.startswith("I21.4") for c in codes_l) or _m(ctx, "nstemi"):
+        if "nstemi" in hints or _m(ctx, "nstemi"):
             return "nstemi"
         return "unspecified"
     if fam == "stroke":
-        if _m(ctx, "stroke_hem_img") or any(c[:3] in {"I60", "I61", "I62", "430", "431", "432"} for c in codes_l):
+        if _m(ctx, "stroke_hem_img") or "hemorrhagic" in hints:
             return "hemorrhagic"
-        if _m(ctx, "stroke_ischemic_img") or any(c[:3] in {"I63", "433", "434"} for c in codes_l):
+        if _m(ctx, "stroke_ischemic_img") or "ischemic" in hints:
             return "ischemic"
-        if any(c.startswith(("G45", "435")) for c in codes_l):
+        if "tia" in hints:
             return "tia"
         return "unknown"
     if fam == "hf":
         ef = ctx["lvef"]
         if ef is not None:
             return "hfref" if ef <= 40 else ("hfmref" if ef < 50 else "hfpef")
-        if any(c.startswith(("I50.2", "I50.4", "428.2", "428.4")) for c in codes_l):
+        if "hfref" in hints:
             return "hfref"
-        if any(c.startswith(("I50.3", "428.3")) for c in codes_l):
+        if "hfpef" in hints:
             return "hfpef"
         return "unknown"
     if fam == "scd":
-        if _m(ctx, "vf") or any(c.startswith(("I49.01", "427.41")) for c in codes_l):
+        if _m(ctx, "vf") or "vf" in hints:
             return "vf"
-        if any(c.startswith(("I47.2", "427.1")) for c in codes_l) and _m(ctx, "arrest"):
+        if "vt" in hints and _m(ctx, "arrest"):
             return "vt"
-        if any(c.startswith(("I46", "427.5")) for c in codes_l) or _m(ctx, "arrest"):
+        if "arrest" in hints or _m(ctx, "arrest"):
             return "arrest"
         return "unknown"
     if fam == "af":
         if cardiac_surgery_before:
             return "postoperative"
-        flutter_codes = bool(codes_l) and all(c.startswith(("I48.3", "I48.4", "I48.92", "427.32")) for c in codes_l)
+        flutter_codes = bool(codes_l) and all(code_hints([c]) == {"flutter"} for c in codes_l)
         # "atrial flutter" also matches the AF pattern, so flutter wins only if every AF mention is a flutter mention
         if flutter_codes or (_m(ctx, "flutter") and _m(ctx, "flutter") >= _m(ctx, "af")):
             return "flutter"

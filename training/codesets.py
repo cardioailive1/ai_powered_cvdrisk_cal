@@ -14,14 +14,8 @@ CPT4 / ICD10PCS patterns are regex prefixes on concept_code without dots.
 # Diagnosis codes only create CANDIDATES; whether a candidate is a real event
 # is decided by auto-labelling + cardiologist adjudication, not by the code.
 # ----------------------------------------------------------------------------
-CANDIDATE_CODES = {
-    "ami": {"icd10": [r"I21", r"I22"], "icd9": [r"410"]},
-    "stroke": {"icd10": [r"I6[0-3]", r"G45\.[0-389]"],
-               "icd9": [r"43[0-2]", r"433\.\d1", r"434\.\d1", r"435", r"436"]},
-    "hf": {"icd10": [r"I50", r"I11\.0", r"I13\.0", r"I13\.2"], "icd9": [r"428", r"402\.\d1", r"404\.\d[13]"]},
-    "scd": {"icd10": [r"I46", r"I49\.0", r"I47\.2"], "icd9": [r"427\.5", r"427\.4", r"427\.1"]},
-    "af": {"icd10": [r"I48"], "icd9": [r"427\.3"]},
-}
+# The candidate diagnosis codes are defined in training/codelists.py (RULES) and expanded, code by code with
+# official descriptions, into training/code_lists/candidate_codes.csv, which the extraction SQL matches exactly.
 
 # ----------------------------------------------------------------------------
 # History flags (any time on or before index)

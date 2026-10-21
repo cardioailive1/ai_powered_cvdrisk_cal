@@ -76,6 +76,16 @@ def _icd_rows(spec: dict) -> list[tuple]:
     return rows
 
 
+def _outcome_concepts(C: str) -> str:
+    """Candidate diagnosis codes, matched EXACTLY against the expanded list (training/code_lists/candidate_codes.csv)."""
+    from .codelists import load
+    rows = [(r["family"], r["vocabulary"], r["code"]) for r in load()]
+    return f"""SELECT /*+ BROADCAST(s) */ c.concept_id, s.family
+  FROM {C}.concept c
+  JOIN {_values(rows, ('family', 'vocab', 'code'))} s
+    ON s.vocab = c.vocabulary_id AND c.concept_code = s.code"""
+
+
 def _proc_rows() -> list[tuple]:
     return [(cat, vocab, "|".join(pats)) for cat, spec in cs.PROCEDURES.items() for vocab, pats in spec.items() if pats]
 
@@ -224,7 +234,7 @@ JOIN atc_drugs d ON d.concept_id = de.drug_concept_id
 """
 
     sql["05_candidate_codes"] = f"""-- Every post-index outcome diagnosis code (row level). Codes only create CANDIDATES.  [-> temp view cvd_candidate_codes]
-WITH outcome_concepts AS ({_codeset_concepts(C, _icd_rows(cs.CANDIDATE_CODES), 'family')})
+WITH outcome_concepts AS ({_outcome_concepts(C)})
 SELECT DISTINCT co.person_id, oc.family, x.condition_start_date AS event_date, c.concept_code AS code,
        v.visit_concept_id, x.condition_status_concept_id
 FROM cvd_cohort co
