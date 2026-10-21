@@ -28,7 +28,8 @@ cardioai/
 │   ├── equations.py        Published equations (unit-tested against published examples)
 │   └── bundle.py           Model bundle loader, prediction, per-patient explanations
 ├── training/               Runs INSIDE Mayo Clinic Platform_Discover
-│   ├── codesets.py         ICD-9/10, CPT, ICD-10-PCS, LOINC, ATC code lists (clinical review point)
+│   ├── codesets.py         History ICD, CPT, ICD-10-PCS, LOINC, ATC code lists (clinical review point)
+│   ├── codelists.py        Candidate outcome code rules → code_lists/candidate_codes.csv (every code, described)
 │   ├── extract.py          OMOP CDM → raw curation dataset (candidates + evidence; Spark SQL)
 │   ├── sql/                Rendered SQL for review
 │   ├── nlp.py              Clinical mention detection with negation / history / hypothetical context
@@ -119,7 +120,7 @@ tar -czf mcp-bundle.tar.gz -C bundles mcp-$(date +%Y-%m)     # submit for Mayo e
 **Step-by-step execution in the workspace:** see [`docs/RUNBOOK_MCP.md`](docs/RUNBOOK_MCP.md).
 
 **Before going live, review with your team:**
-- the code lists in `training/codesets.py` (ICD, CPT, ICD-10-PCS, LOINC; the `PRIMARY_STATUS` concept IDs and the default troponin URLs);
+- the expanded candidate outcome codes in `training/code_lists/candidate_codes.csv` (334 codes with descriptions; rules in `training/codelists.py`) and the other code lists in `training/codesets.py` (ICD, CPT, ICD-10-PCS, LOINC; the `PRIMARY_STATUS` concept IDs and the default troponin URLs);
 - the labelling-function weights in `training/labeling.py`;
 - the governance thresholds and definitions.
 

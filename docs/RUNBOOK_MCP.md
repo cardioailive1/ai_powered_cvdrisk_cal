@@ -87,7 +87,11 @@ python -m training.preflight --cdm $OMOP --native-dataset $NATIVE --out data/pre
 | `troponin_by_year` | Year of the switch to Gen 5 hs-TnT (LOINC 67151-1) and whether `range_high` is filled. If not, the Mayo default upper limits are used (TRPS: men ≤15, women ≤10 ng/L). | note in the release log; adjust `DEFAULT_URL_NG_L` only if Mayo differs |
 | `imaging_notes_by_year` | Confirms radiology/echo text coverage over 2010–2025. | — |
 
-**2.4 Clinical review of code lists.** The CL and DS go through `training/codesets.py` together: outcome ICD codes, history codes, CPT/ICD-10-PCS procedures, LOINC, ATC. Record the review in the commit message of any change.
+**2.4 Clinical review of code lists.** The CL and DS review the code lists together.
+- **Candidate outcome codes:** every code is listed with its official description in `training/code_lists/candidate_codes.csv`, which is also the models sheet's *Candidate codes* tab. It includes the 20 codes deliberately excluded and why. To change the list, edit `RULES` in `training/codelists.py`, run `python -m training.codelists`, and commit both files. CI fails if they drift apart.
+- **Other code lists:** history codes, CPT/ICD-10-PCS procedures, LOINC and ATC are in `training/codesets.py`.
+
+Record the review in the commit message of any change.
 
 **2.5 Set governance** (thresholds and definitions) in `data/governance.json` after `init` (Phase 4). Defaults: κ ≥ 0.6, PPV/NPV ≥ 85%, annotation accuracy ≥ 90%, indeterminate ≤ 15%, type 2 MI **excluded** from AMI, post-operative AF **excluded** from new-onset AF.
 
