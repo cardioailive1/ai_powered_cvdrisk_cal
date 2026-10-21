@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from cardioai_core.schema import FIELDS, HORIZONS
+from cardioai_core.schema import AGE_MAX, AGE_MIN, FIELDS, HORIZONS
 
 REQUIRED_FEATURE_COLS = ["person_id", "index_date", "age", "sex", "race", "followup_days", "death_days"]
 CORE_FEATURES = ["age", "sex", "sbp", "total_chol", "hdl"]
@@ -63,8 +63,9 @@ def run_audit(features: pd.DataFrame, labels: pd.DataFrame, evidence_counts: dic
                          n, f"≥ {A['min_cohort']}"))
     dup = int(F["person_id"].duplicated().sum())
     checks.append(_check("duplicates", "Cohort", "Duplicate patients", "fail" if dup else "pass", dup, 0))
-    bad_age = int(((F["age"] < 18) | (F["age"] > 90)).sum())
-    checks.append(_check("age_range", "Cohort", "Age outside 18–90 at index", "fail" if bad_age else "pass", bad_age, 0))
+    bad_age = int(((F["age"] < AGE_MIN) | (F["age"] >= AGE_MAX + 1)).sum())
+    checks.append(_check("age_range", "Cohort", f"Age outside {AGE_MIN}–{AGE_MAX} at index (adults only; no pediatric patients)",
+                         "fail" if bad_age else "pass", bad_age, 0))
     neg_fu = int((F["followup_days"] < 0).sum())
     checks.append(_check("followup_negative", "Temporal", "Negative follow-up time", "fail" if neg_fu else "pass", neg_fu, 0))
 

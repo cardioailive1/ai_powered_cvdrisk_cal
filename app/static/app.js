@@ -224,9 +224,11 @@
       return;
     }
     const src = m.provenance === "mayo-clinic-platform" ? "Mayo Clinic Platform" : m.provenance;
+    const el = META.eligibility;
+    const pop = el ? `<span><b>Population:</b> adults ${el.age_min}–${el.age_max} y · not for patients under ${el.age_min}</span>` : "";
     strip.innerHTML = `<span><b>Model bundle:</b> ${esc(m.bundle_id)}</span><span><b>Training data:</b> ${esc(src)}</span>` +
       (m.n_patients ? `<span><b>Patients:</b> ${Number(m.n_patients).toLocaleString()}</span>` : "") +
-      (m.created_utc ? `<span><b>Trained:</b> ${esc(m.created_utc.slice(0, 10))}</span>` : "") + labelInfo(m.label_governance);
+      (m.created_utc ? `<span><b>Trained:</b> ${esc(m.created_utc.slice(0, 10))}</span>` : "") + labelInfo(m.label_governance) + pop;
     if (m.is_demo) {
       banner.innerHTML = `<strong>DEMO MODELS — NOT FOR CLINICAL USE.</strong> ${esc(m.data_description || "")} ` +
         "Replace with the bundle trained in your Mayo Clinic Platform workspace before any clinical evaluation.";

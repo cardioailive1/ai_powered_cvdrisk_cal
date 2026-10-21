@@ -13,6 +13,60 @@ from typing import Any
 # --------------------------------------------------------------------------
 HORIZONS: dict[str, int] = {"30d": 30, "1y": 365, "5y": 1826}
 
+# --------------------------------------------------------------------------
+# Eligibility: who the calculators are for (ADULTS ONLY — no pediatric use)
+# One definition used by the cohort SQL, the automatic audit, the API's input validation and the docs.
+# --------------------------------------------------------------------------
+AGE_MIN = 18   # years, inclusive: patients under 18 are never extracted, trained on, validated on or scored
+AGE_MAX = 89   # years, inclusive (age < 90): de-identified data top-codes ages 90 and over ("90+"), so exact
+               # ages above 89 are not available to train on (HIPAA Safe Harbor, 45 CFR 164.514(b)(2)(i)(C))
+INDEX_WINDOW = ("2012-01-01", "2019-12-31")   # index visits (default; leaves >= 5 years of follow-up)
+
+ELIGIBILITY: dict[str, Any] = {
+    "population": f"Adults aged {AGE_MIN}–{AGE_MAX} years. Pediatric patients (under {AGE_MIN}) are excluded from "
+                  "training, validation and use of all five calculators.",
+    "inclusion": [
+        {"id": "I1", "criterion": f"Age {AGE_MIN}–{AGE_MAX} years at the index visit (age ≥ {AGE_MIN}.0 and < {AGE_MAX + 1}.0)",
+         "applies_to": "all", "where": "cohort SQL; API validation"},
+        {"id": "I2", "criterion": f"An outpatient visit between {INDEX_WINDOW[0]} and {INDEX_WINDOW[1]} (one index visit per patient, "
+                                  "chosen at random among eligible visits)", "applies_to": "all", "where": "cohort SQL"},
+        {"id": "I3", "criterion": "At least 365 days of observation before the index visit", "applies_to": "all", "where": "cohort SQL"},
+        {"id": "I4", "criterion": "Total cholesterol or HDL cholesterol measured in the 365 days before the index visit",
+         "applies_to": "all", "where": "cohort SQL"},
+        {"id": "I5", "criterion": "Recorded sex male or female (the models and published equations are sex-specific)",
+         "applies_to": "all", "where": "cohort SQL; API validation"},
+    ],
+    "exclusion": [
+        {"id": "E1", "criterion": f"Age under {AGE_MIN} at the index visit (pediatric)", "applies_to": "all",
+         "where": "cohort SQL; audit (fail); API refuses"},
+        {"id": "E2", "criterion": f"Age {AGE_MAX + 1} or over at the index visit (top-coded in de-identified data)", "applies_to": "all",
+         "where": "cohort SQL; audit (fail); API refuses"},
+        {"id": "E3", "criterion": "Sex not recorded as male or female", "applies_to": "all", "where": "cohort SQL"},
+        {"id": "E4", "criterion": "Death recorded on or before the index date", "applies_to": "all", "where": "cohort SQL"},
+        {"id": "E5", "criterion": "No observation time after the index date (no follow-up)", "applies_to": "all", "where": "cohort SQL"},
+        {"id": "E6", "criterion": "Known atrial fibrillation or flutter at the index visit", "applies_to": "af",
+         "where": "AF training labels; API returns 'not applicable'"},
+    ],
+    "outcome_rules": [   # not patient exclusions: these events are not counted as the outcome
+        "Type 2 (supply/demand) MI is not counted as an AMI event",
+        "Post-operative AF (≤ 30 days after cardiac surgery) is not counted as new-onset AF",
+        "Only the first event of each outcome after the index date is counted",
+    ],
+    "published_equation_ranges": {"Pooled Cohort Equations": "40–79 years", "CHARGE-AF": "46–94 years (used here up to 89)",
+                                  "CHA₂DS₂-VASc": "adults with AF", "ICD criteria": "adults"},
+}
+
+
+def age_problem(age: float) -> str | None:
+    """Plain-language reason a patient's age is outside the calculators' population, or None."""
+    if age < AGE_MIN:
+        return (f"These calculators are for adults aged {AGE_MIN}–{AGE_MAX}. They are not validated for patients "
+                f"under {AGE_MIN} and must not be used in children or adolescents.")
+    if age > AGE_MAX:
+        return (f"These calculators are validated for ages {AGE_MIN}–{AGE_MAX}; ages {AGE_MAX + 1} and over are outside "
+                "the training data.")
+    return None
+
 CALCULATORS: dict[str, dict[str, Any]] = {
     "ami": {
         "name": "Acute Myocardial Infarction (AMI)",
@@ -165,7 +219,7 @@ def all_endpoints() -> list[str]:
 # type: number | select | bool.  "calcs": which calculators show the field (None = all)
 FIELDS: list[dict[str, Any]] = [
     # Demographics
-    {"key": "age", "label": "Age", "unit": "years", "type": "number", "min": 18, "max": 100, "default": 55, "section": "demographics", "required": True},
+    {"key": "age", "label": "Age", "unit": "years", "type": "number", "min": AGE_MIN, "max": AGE_MAX, "default": 55, "section": "demographics", "required": True},
     {"key": "sex", "label": "Sex", "type": "select", "options": ["male", "female"], "default": "male", "section": "demographics", "required": True},
     {"key": "race", "label": "Race/Ethnicity", "type": "select", "options": ["white", "black", "hispanic", "asian", "other"], "default": "white", "section": "demographics", "required": True},
     {"key": "height_cm", "label": "Height", "unit": "cm", "type": "number", "min": 120, "max": 220, "default": 175, "section": "demographics"},
@@ -321,6 +375,8 @@ def validate_input(p: dict[str, Any]) -> list[str]:
             x = _num(v)
             if math.isnan(x):
                 errors.append(f"{f['label']} must be a number.")
+            elif f["key"] == "age" and age_problem(x):
+                errors.append(age_problem(x))
             elif x < f["min"] or x > f["max"]:
                 errors.append(f"{f['label']} must be between {f['min']} and {f['max']} {f.get('unit', '')}".strip() + ".")
         elif f["type"] == "select" and str(v).lower() not in f["options"]:

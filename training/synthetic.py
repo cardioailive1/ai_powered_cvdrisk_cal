@@ -15,10 +15,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from cardioai_core.schema import AGE_MAX, AGE_MIN
+
 
 def generate(n: int = 80000, seed: int = 7) -> pd.DataFrame:
     r = np.random.default_rng(seed)
-    age = np.clip(r.normal(58, 13, n), 18, 90)
+    age = np.clip(r.normal(58, 13, n), AGE_MIN, AGE_MAX + 0.9)   # adults only, like the real cohort
     male = r.random(n) < 0.49
     race = r.choice(["white", "black", "hispanic", "asian", "other"], n, p=[0.74, 0.09, 0.08, 0.05, 0.04])
     height = np.where(male, r.normal(177, 7, n), r.normal(163, 6.5, n))

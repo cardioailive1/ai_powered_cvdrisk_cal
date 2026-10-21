@@ -24,7 +24,7 @@ set them in training/native_sources.json — a real run refuses while any remain
 
 Cohort design (landmark): index = one hash-deterministic outpatient visit per patient in
 [index-start, index-end] with a lipid result in the prior year and >=365 d prior
-observation; ages 18-90. SQL dialect: Spark SQL (Spark >= 3.3), run through the workspace's
+observation; ADULTS ONLY (18-89 at index; see cardioai_core.schema.ELIGIBILITY). SQL dialect: Spark SQL (Spark >= 3.3), run through the workspace's
 Spark session; intermediate results are cached temporary views (no scratch schema needed).
 """
 from __future__ import annotations
@@ -35,6 +35,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from cardioai_core.schema import AGE_MAX, AGE_MIN, INDEX_WINDOW
 
 from . import codesets as cs
 from .imaging_nlp import parse_imaging_reports
@@ -94,10 +96,13 @@ def render_sql(cdm: str, index_start: str, index_end: str, lookback_days: int = 
     dob = ("date_add(make_date(cast(p.year_of_birth AS INT), cast(coalesce(p.month_of_birth, 7) AS INT), 1), "
            "cast(coalesce(p.day_of_birth, 1) - 1 AS INT))")
     sql: dict[str, str] = {}
-    sql["01_cohort"] = f"""-- Landmark cohort: one index outpatient visit per patient  [-> temp view cvd_cohort]
-WITH candidate_visits AS (
-  SELECT DISTINCT v.person_id, v.visit_start_date AS index_date
+    adult = f"age >= {AGE_MIN} AND age < {AGE_MAX + 1}"
+    sexes = ", ".join(map(str, cs.GENDER))
+    base = f"""WITH visits AS (
+  SELECT DISTINCT v.person_id, v.visit_start_date AS index_date,
+         cast(datediff(v.visit_start_date, {dob}) AS DOUBLE) / 365.25 AS age
   FROM {C}.visit_occurrence v
+  JOIN {C}.person p ON p.person_id = v.person_id
   JOIN {C}.observation_period op
     ON op.person_id = v.person_id
    AND v.visit_start_date BETWEEN date_add(op.observation_period_start_date, 365) AND op.observation_period_end_date
@@ -109,15 +114,15 @@ WITH candidate_visits AS (
   WHERE v.visit_concept_id IN ({outpatient})
     AND v.visit_start_date BETWEEN DATE '{index_start}' AND DATE '{index_end}'
 ),
+candidate_visits AS (SELECT * FROM visits WHERE {adult}),   -- I1 / E1 / E2: adults {AGE_MIN}-{AGE_MAX} at the visit
 ranked AS (
-  SELECT person_id, index_date,
+  SELECT person_id, index_date, age,
          ROW_NUMBER() OVER (PARTITION BY person_id
                             ORDER BY xxhash64(concat(cast(person_id AS STRING), cast(index_date AS STRING)))) AS rn
   FROM candidate_visits
 ),
 idx AS (
-  SELECT r.person_id, r.index_date, cast(datediff(r.index_date, {dob}) AS DOUBLE) / 365.25 AS age,
-         p.gender_concept_id, p.race_concept_id, p.ethnicity_concept_id
+  SELECT r.person_id, r.index_date, r.age, p.gender_concept_id, p.race_concept_id, p.ethnicity_concept_id
   FROM ranked r
   JOIN {C}.person p ON p.person_id = r.person_id
   WHERE r.rn = 1
@@ -129,13 +134,40 @@ obs AS (
     ON op.person_id = i.person_id AND i.index_date BETWEEN op.observation_period_start_date AND op.observation_period_end_date
   GROUP BY i.person_id
 ),
-dth AS (SELECT person_id, MIN(death_date) AS death_date FROM {C}.death GROUP BY person_id)
-SELECT i.person_id, i.index_date, i.age, i.gender_concept_id, i.race_concept_id, i.ethnicity_concept_id,
-       o.obs_end, d.death_date
-FROM idx i
-LEFT JOIN obs o ON o.person_id = i.person_id
-LEFT JOIN dth d ON d.person_id = i.person_id
-WHERE i.age BETWEEN 18 AND 90
+dth AS (SELECT person_id, MIN(death_date) AS death_date FROM {C}.death GROUP BY person_id),
+screened AS (
+  SELECT i.person_id, i.index_date, i.age, i.gender_concept_id, i.race_concept_id, i.ethnicity_concept_id,
+         o.obs_end, d.death_date,
+         i.gender_concept_id IN ({sexes}) AS sex_ok,                                  -- I5 / E3
+         (d.death_date IS NULL OR d.death_date > i.index_date) AS alive_at_index,      -- E4
+         (o.obs_end > i.index_date) AS has_followup                                    -- E5
+  FROM idx i
+  LEFT JOIN obs o ON o.person_id = i.person_id
+  LEFT JOIN dth d ON d.person_id = i.person_id
+)"""
+    sql["01_cohort"] = f"""-- Landmark cohort: one index outpatient visit per ADULT patient  [-> temp view cvd_cohort]
+-- Eligibility (cardioai_core.schema.ELIGIBILITY): I1-I5 inclusion, E1-E5 exclusion; adults {AGE_MIN}-{AGE_MAX} only, no pediatric patients
+{base}
+SELECT person_id, index_date, age, gender_concept_id, race_concept_id, ethnicity_concept_id, obs_end, death_date
+FROM screened
+WHERE sex_ok AND alive_at_index AND has_followup
+"""
+    sql["00_cohort_attrition"] = f"""-- Patient counts removed by each eligibility criterion (aggregate only; small cells suppressed in Python)
+{base},
+people AS (
+  SELECT person_id, MAX(CASE WHEN {adult} THEN 1 ELSE 0 END) AS any_adult,
+         MAX(CASE WHEN age < {AGE_MIN} THEN 1 ELSE 0 END) AS any_pediatric
+  FROM visits GROUP BY person_id
+)
+SELECT
+  (SELECT count(*) FROM people) AS with_eligible_visit,
+  (SELECT count(*) FROM people WHERE any_adult = 0 AND any_pediatric = 1) AS excluded_pediatric_only,
+  (SELECT count(*) FROM people WHERE any_adult = 0 AND any_pediatric = 0) AS excluded_age_90_plus_only,
+  (SELECT count(*) FROM screened) AS adults_with_index_visit,
+  (SELECT count(*) FROM screened WHERE NOT sex_ok) AS excluded_sex_not_recorded,
+  (SELECT count(*) FROM screened WHERE sex_ok AND NOT alive_at_index) AS excluded_died_before_index,
+  (SELECT count(*) FROM screened WHERE sex_ok AND alive_at_index AND NOT has_followup) AS excluded_no_followup,
+  (SELECT count(*) FROM screened WHERE sex_ok AND alive_at_index AND has_followup) AS final_cohort
 """
 
     loinc_rows = [(code, feat) for feat, codes in cs.LOINC.items() for code in codes]
@@ -404,6 +436,17 @@ def _decimals_to_float(pdf: pd.DataFrame) -> pd.DataFrame:
     return pdf
 
 
+def write_attrition(df: pd.DataFrame, out: Path, min_cell: int = 11) -> dict:
+    """Eligibility flow (how many patients each criterion removed). Aggregate counts only, cells < min_cell suppressed."""
+    import json
+    row = {k: int(v) for k, v in df.iloc[0].items()} if len(df) else {}
+    shown = {k: (v if v == 0 or v >= min_cell else f"<{min_cell}") for k, v in row.items()}
+    rep = {"age_min": AGE_MIN, "age_max": AGE_MAX, "counts": shown,
+           "note": "Adults only. Patients with no adult visit in the index window are excluded; pediatric patients never enter the cohort."}
+    (out / "cohort_attrition.json").write_text(json.dumps(rep, indent=2))
+    return shown
+
+
 def run_extract(spark, a) -> Path:
     sql = render_sql(a.cdm, a.index_start, a.index_end, a.lookback_days)
     ncfg = load_native_config(a.native_config)
@@ -427,8 +470,10 @@ def run_extract(spark, a) -> Path:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    attrition = write_attrition(q("00_cohort_attrition"), out)
+    log.info("Eligibility: %s", attrition)
     cohort = q("01_cohort")
-    log.info("Cohort: %d patients", len(cohort))
+    log.info("Cohort: %d adult patients", len(cohort))
     imaging = q("06_baseline_imaging_notes")
     imaging["note_title"] = "Imaging report"
     if a.native_dataset:
@@ -452,8 +497,8 @@ def run_extract(spark, a) -> Path:
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cdm", default="omop", help="Spark catalog.schema (or schema) holding the OMOP CDM tables")
-    ap.add_argument("--index-start", default="2012-01-01")
-    ap.add_argument("--index-end", default="2019-12-31")
+    ap.add_argument("--index-start", default=INDEX_WINDOW[0])
+    ap.add_argument("--index-end", default=INDEX_WINDOW[1])
     ap.add_argument("--lookback-days", type=int, default=730)
     ap.add_argument("--native-dataset", help="Spark catalog.schema holding Mayo native tables (FACT_ECHO_TEST); enables echo notes")
     ap.add_argument("--native-config", help="JSON overriding training/codesets.NATIVE_NOTE_SOURCES (default training/native_sources.json)")
