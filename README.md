@@ -156,6 +156,14 @@ python -m curation.pipeline init --data-dir demo --provenance synthetic-demo
 # add users as above, then: label, audit, review/approve in the workbench (or CLI `review` / `approve --as`)
 python -m curation.pipeline simulate-adjudication --data-dir demo   # SYNTHETIC ONLY: simulated readers from hidden truth
 ```
+**Training the team.** `python -m curation.training_kit` runs the Label & Annotation Training Program on a separate synthetic training folder:
+- the practice and calibration case sets, read in the real workbench;
+- seeded disagreements for the lead cardiologist;
+- the planted-fault audit exercise for data scientists;
+- certification scoring.
+
+See [docs/TRAINING_KIT.md](docs/TRAINING_KIT.md).
+
 The simulator refuses to run unless the data folder carries the `SYNTHETIC` marker. Any label run or release it touches is permanently flagged `simulated_adjudication`, and the workbench, release report, model bundle and calculator app all say so.
 
 ## 2. Deploy on Render
@@ -210,7 +218,7 @@ pip install -r requirements.txt
 ADMIN_USERNAME=admin@example.org ADMIN_PASSWORD='a-long-local-passphrase' uvicorn app.main:app --reload
 # open http://localhost:8000 — sign in, enrol MFA; API docs at /docs (disabled when APP_ENV=production)
 pip install -r requirements-dev.txt
-pytest -q                                  # 72 tests (+4 Postgres tests when TEST_DATABASE_URL is set)
+pytest -q                                  # 81 tests (+4 Postgres tests when TEST_DATABASE_URL is set)
 
 # retrain the demo bundle
 pip install pyarrow
