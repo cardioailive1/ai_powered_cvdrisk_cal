@@ -118,8 +118,13 @@ EOF
 ```
 Expect hundreds of thousands of patients in `features`, and every evidence table non-empty.
 
+**3.4 Check eligibility (adults only).** Open `data/raw/cohort_attrition.json`. It gives the number of patients each criterion removed: pediatric-only, age 90+, sex not recorded, died before index, no follow-up. Counts under 11 show as `<11`.
+- Confirm that `features.age` lies between 18 and 89.
+- Record the attrition counts in the study protocol.
+- The criteria are on the models sheet's **Eligibility** tab (I1–I5, E1–E6).
+
 ⛔ **Stop if** any table is empty, or the cohort is far smaller than expected. Re-check the schemas and the index window.
-✅ **Done when** the 6 parquet files exist in `data/raw/`.
+✅ **Done when** the 6 parquet files and `cohort_attrition.json` exist in `data/raw/`, and every patient is 18–89.
 
 ---
 

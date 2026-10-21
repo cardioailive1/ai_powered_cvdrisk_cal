@@ -5,6 +5,10 @@ Five calculators: **AMI, Stroke, Heart Failure, Sudden Cardiac Death, Atrial Fib
 - The AI models are trained on de-identified **Mayo Clinic Platform** records inside your Platform_Discover workspace.
 - The app is a FastAPI backend plus a dynamic frontend, deployed on **Render.com**.
 - Published equations run alongside the AI as a reference: Pooled Cohort Equations, CHARGE-AF, CHA₂DS₂-VASc and the ACC/AHA/HRS ICD criteria.
+- **Adults only, aged 18–89.** Pediatric patients are excluded from training, validation and use.
+  - The upper bound is 89 because de-identified data top-codes ages 90 and over.
+  - The criteria are in `cardioai_core/schema.py` → `ELIGIBILITY` and on the models sheet's Eligibility tab.
+  - The cohort SQL, the automatic audit and the app all use them; the app refuses an age under 18 or over 89.
 
 ```
 cardioai/
