@@ -124,24 +124,62 @@ TRIGGER_PROCEDURES = {"pci": "ami", "thrombolysis": "stroke", "thrombectomy": "s
                       "cpr": "scd", "cardioversion": "af"}
 
 # ----------------------------------------------------------------------------
-# Mayo Clinic Platform native tables (not OMOP) used as extra note sources.
-# Confirmed by Mayo Clinic Platform (A. Resnick, 14 Oct 2026): echo notes are in FACT_ECHO_TEST.ECHO_NOTE;
-# radiology reports are in FACT_RADIOLOGY (also mapped to OMOP note.note_text, which extract.py already uses).
-# Values starting with "CONFIRM:" are not yet confirmed: --render-only shows them, a real run refuses
-# until they are set in native_sources.json (confirm in the MCP training session).
+# Mayo Clinic Platform native tables (not OMOP).
+# Confirmed by Mayo Clinic Platform (A. Resnick):
+#   14 Oct 2026  echo notes are in FACT_ECHO_TEST.ECHO_NOTE; radiology reports are in FACT_RADIOLOGY (also mapped
+#                to OMOP note.note_text, which extract.py already uses).
+#   21 Oct 2026  DIM_PATIENT has one row per medical-record system; PATIENT_CLINIC_NUMBER is the same across
+#                systems (the person-level key); PATIENT_MERGED_FLAG = 'N' gives one row per person. FACT tables
+#                carry PATIENT_DK, linked to PATIENT_CLINIC_NUMBER through DIM_PATIENT.
+#                FACT_DIAGNOSIS.PRIMARY_DIAGNOSIS_FLAG marks the primary diagnosis (ENCOUNTER_NUMBER links to
+#                FACT_ENCOUNTERS.ENCOUNTER_TYPE). FACT_MORTALITY_STATUS combines the Mayo record with third-party
+#                death data (Veritas Data Research); EHR_LAST_LIVE_INTERACTION_DTM = last completed appointment,
+#                immunization, lab collection or surgical case. Cause of death is NOT populated.
+#                Dates are shifted by the same amount across a patient's whole record.
+# Values starting with "CONFIRM:" are not yet confirmed: --render-only shows them, a real run with
+# --native-dataset refuses until they are set in native_sources.json (run training.preflight to see the columns).
 # ----------------------------------------------------------------------------
-NATIVE_NOTE_SOURCES = {
+NATIVE_SOURCES = {
+    "patient_link": {
+        "table": "DIM_PATIENT",                                       # confirmed 21 Oct 2026
+        "dk_column": "PATIENT_DK",                                    # confirmed
+        "clinic_number_column": "PATIENT_CLINIC_NUMBER",              # confirmed: same person across systems
+        "merged_flag_column": "PATIENT_MERGED_FLAG",                  # confirmed
+        "unmerged_value": "N",                                        # confirmed: one row per person
+        "omop_person_column": "CONFIRM:OMOP person column holding PATIENT_CLINIC_NUMBER (e.g. person_source_value)",
+    },
     "echo": {
         "table": "FACT_ECHO_TEST",
-        "text_column": "ECHO_NOTE",                                   # confirmed
-        "patient_column": "CONFIRM:patient key column in FACT_ECHO_TEST (e.g. PATIENT_CLINIC_NUMBER)",
+        "text_column": "ECHO_NOTE",                                   # confirmed 14 Oct 2026
+        # PATIENT_DK (joined through DIM_PATIENT) or PATIENT_CLINIC_NUMBER (joined directly)
+        "patient_column": "CONFIRM:patient key column in FACT_ECHO_TEST (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
         "date_column": "CONFIRM:date/time the echo was performed",
         "id_column": "CONFIRM:unique echo test id (or leave as row number)",
-        # how the native patient key maps to OMOP person_id
-        "person_bridge": "CONFIRM:OMOP person column holding the native patient key (e.g. person_source_value)",
         "title": "Echocardiogram report",
     },
+    "diagnosis": {
+        "table": "FACT_DIAGNOSIS",                                    # confirmed 21 Oct 2026
+        "patient_column": "CONFIRM:patient key column in FACT_DIAGNOSIS (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
+        "date_column": "CONFIRM:diagnosis date/time column",
+        "code_column": "CONFIRM:ICD diagnosis code column (with or without the dot)",
+        "primary_flag_column": "PRIMARY_DIAGNOSIS_FLAG",              # confirmed
+        "primary_value": "CONFIRM:value of PRIMARY_DIAGNOSIS_FLAG meaning primary (e.g. Y)",
+        "encounter_column": "ENCOUNTER_NUMBER",                       # confirmed (links to FACT_ENCOUNTERS)
+    },
+    "mortality": {
+        "table": "FACT_MORTALITY_STATUS",                             # confirmed 21 Oct 2026
+        "patient_column": "CONFIRM:patient key column in FACT_MORTALITY_STATUS (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
+        "death_date_column": "CONFIRM:date of death column",
+        "last_live_column": "EHR_LAST_LIVE_INTERACTION_DTM",          # confirmed
+    },
 }
+NATIVE_NOTE_SOURCES = NATIVE_SOURCES          # old name, kept for existing imports
+
+# A death counts as an observed outcome-period death when it falls within this many days after the last contact
+# (end of OMOP observation or last live interaction). Later deaths (e.g. found only by the third-party death source
+# years after the patient left Mayo care) do not end follow-up as a death: the patient is censored at last contact,
+# because events between last contact and death are not observed. CLINICAL LEAD TO CONFIRM.
+DEATH_GRACE_DAYS = 30
 
 # Regex prefilter for event-window notes (SQL side; full NLP runs in Python)
 NOTE_PREFILTER = (r"infarct|stemi|troponin|acute coronary|stroke|cva|hemorrhage|transient ischemic|\btia\b|"
@@ -151,9 +189,8 @@ NOTE_PREFILTER = (r"infarct|stemi|troponin|acute coronary|stroke|cva|hemorrhage|
 # OMOP visit concepts
 INPATIENT_ED_VISITS = [9201, 9203, 262]   # inpatient, emergency room, ER+inpatient
 OUTPATIENT_VISITS = [9202]
-# OMOP condition_status concepts meaning "primary/principal diagnosis".
-# VERIFY against the Condition Status vocabulary in your workspace (some ETLs
-# use condition_type_concept_id position codes instead).
+# OMOP condition_status concepts meaning "primary/principal diagnosis". Fallback only: with --native-dataset the
+# primary flag comes from FACT_DIAGNOSIS.PRIMARY_DIAGNOSIS_FLAG (MCP, 21 Oct 2026); a code is primary if either says so.
 PRIMARY_STATUS = [32901, 32902]
 # OMOP person concepts
 GENDER = {8507: "male", 8532: "female"}

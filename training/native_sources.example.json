@@ -1,8 +1,20 @@
 {
+  "patient_link": {
+    "omop_person_column": "person_source_value"
+  },
   "echo": {
-    "patient_column": "PATIENT_CLINIC_NUMBER",
-    "date_column": "<echo date/time column — confirm with Mayo Clinic Platform>",
-    "id_column": "<unique echo id column, optional>",
-    "person_bridge": "person_source_value"
+    "patient_column": "PATIENT_DK",
+    "date_column": "<echo date/time column - see preflight native_tables>",
+    "id_column": "<unique echo id column, optional>"
+  },
+  "diagnosis": {
+    "patient_column": "PATIENT_DK",
+    "date_column": "<diagnosis date/time column>",
+    "code_column": "<ICD code column>",
+    "primary_value": "Y"
+  },
+  "mortality": {
+    "patient_column": "PATIENT_DK",
+    "death_date_column": "<date of death column>"
   }
 }

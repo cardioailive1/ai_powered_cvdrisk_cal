@@ -18,7 +18,13 @@ from training.labeling import build_episodes  # noqa: E402
 from training.synthetic_raw import generate_raw  # noqa: E402
 
 
+NATIVE = {"patient_link": {"omop_person_column": "person_source_value"},
+          "echo": {"patient_column": "PATIENT_DK", "date_column": "ECHO_DTM", "id_column": "ECHO_ID"},
+          "diagnosis": {"patient_column": "PATIENT_DK", "date_column": "DIAGNOSIS_DTM", "code_column": "DIAGNOSIS_CODE",
+                        "primary_value": "Y"},
+          "mortality": {"patient_column": "PATIENT_DK", "death_date_column": "DEATH_DTM"}}
 INELIGIBLE = {}   # person_id -> reason, filled by the fixture
+LATE_DEATH = {}   # person_id -> days: third-party death long after last contact (censored, not a follow-up death)
 
 
 def _make_ineligible(raw, omop):
@@ -33,7 +39,16 @@ def _make_ineligible(raw, omop):
     person.loc[person.person_id == pids[2], "gender_concept_id"] = 0                     # E3 sex not recorded
     death = death[death.person_id != pids[3]]
     omop["death"] = pd.concat([death, pd.DataFrame({"person_id": [pids[3]], "death_date": [(idx[pids[3]] - pd.Timedelta(days=10)).date()]})])
-    INELIGIBLE.update({pids[0]: "pediatric", pids[1]: "age_90_plus", pids[2]: "sex", pids[3]: "died_before_index"})
+    # E4 from the third-party death source only (FACT_MORTALITY_STATUS), and a death 3 years after last contact
+    alive = [p for p in F.index[4:] if pd.isna(F.loc[p, "death_days"])][:2]
+    mort = omop["FACT_MORTALITY_STATUS"]
+    p4, p5 = alive
+    mort.loc[mort.PATIENT_DK == p4 * 10, "DEATH_DTM"] = pd.Timestamp(F.loc[p4, "index_date"]) - pd.Timedelta(days=30)
+    late = float(F.loc[p5, "followup_days"]) + 3 * 365
+    mort.loc[mort.PATIENT_DK == p5 * 10, "DEATH_DTM"] = pd.Timestamp(F.loc[p5, "index_date"]) + pd.Timedelta(days=late)
+    INELIGIBLE.update({pids[0]: "pediatric", pids[1]: "age_90_plus", pids[2]: "sex", pids[3]: "died_before_index",
+                       p4: "died_before_index_external"})
+    LATE_DEATH[p5] = late
     return omop
 
 
@@ -48,8 +63,7 @@ def extracted(tmp_path_factory):
                if df.empty else spark.createDataFrame(df))
         sdf.createOrReplaceGlobalTempView(name)
     cfg = d / "native.json"
-    cfg.write_text(json.dumps({"echo": {"patient_column": "PATIENT_CLINIC_NUMBER", "date_column": "ECHO_DTM",
-                                        "id_column": "ECHO_ID", "person_bridge": "person_source_value"}}))
+    cfg.write_text(json.dumps(NATIVE))
     a = extract.parse_args(["--cdm", "global_temp", "--native-dataset", "global_temp", "--native-config", str(cfg),
                             "--out", str(d / "raw")])
     extract.run_extract(spark, a)
@@ -68,8 +82,9 @@ def test_eligibility_adults_only(extracted):
     a = out["attrition"]
     assert a["age_min"] == 18 and a["age_max"] == 89
     c = a["counts"]
-    assert c["final_cohort"] == len(f) and c["with_eligible_visit"] == len(f) + 4
-    for k in ("excluded_pediatric_only", "excluded_age_90_plus_only", "excluded_sex_not_recorded", "excluded_died_before_index"):
+    assert c["final_cohort"] == len(f) and c["with_eligible_visit"] == len(f) + 5
+    for k in ("excluded_pediatric_only", "excluded_age_90_plus_only", "excluded_sex_not_recorded", "excluded_died_before_index",
+              "excluded_died_before_index_external_source"):
         assert c[k] == "<11", k                                          # 1 each, suppressed as a small cell
 
 
@@ -87,6 +102,16 @@ def test_cohort_and_features(extracted):
         assert (j[k] == j[k + "_src"]).all(), k
     assert ((j["smoking"] == j["smoking_src"]).mean() > 0.99) and ((j["diabetes"] == j["diabetes_src"]).mean() > 0.9)
     assert (abs(j["followup_days"] - j["followup_days_src"]) <= 1).all()
+    (late,) = LATE_DEATH                                                   # death 3 years after last contact: censored
+    assert pd.isna(f.loc[late, "death_days"])
+
+
+def test_primary_flag_from_fact_diagnosis(extracted):
+    from training.codesets import PRIMARY_STATUS
+    raw, out = extracted
+    c = out["candidate_codes"]
+    assert set(c["primary_native"]) == {0, 1}
+    assert (c["primary_native"] == c["condition_status_concept_id"].isin(PRIMARY_STATUS).astype(int)).all()
 
 
 def test_candidates_evidence_and_notes(extracted):
@@ -113,10 +138,16 @@ def test_preflight_on_mock(extracted, tmp_path):
     from training.preflight import run_preflight
     spark = pyspark.SparkSession.builder.getOrCreate()
     cfg = tmp_path / "n.json"
-    cfg.write_text(json.dumps({"echo": {"patient_column": "PATIENT_CLINIC_NUMBER", "date_column": "ECHO_DTM",
-                                        "id_column": "ECHO_ID", "person_bridge": "person_source_value"}}))
+    cfg.write_text(json.dumps(NATIVE))
     rep = run_preflight(spark, "global_temp", "global_temp", str(cfg))
     assert all(rep["omop_tables"].values()) and rep["fact_echo_test_exists"]
-    assert {c["name"] for c in rep["fact_echo_test_columns"]} >= {"ECHO_NOTE", "ECHO_DTM", "PATIENT_CLINIC_NUMBER"}
-    assert rep["echo_person_bridge"]["match_rate"] == 1.0
+    assert {c["name"] for c in rep["fact_echo_test_columns"]} >= {"ECHO_NOTE", "ECHO_DTM", "PATIENT_DK"}
+    assert rep["native_unconfirmed"] == []
+    assert rep["echo_person_bridge"]["match_rate"] == 1.0                 # including echoes filed under a merged DK
+    assert rep["diagnosis_person_link"]["match_rate"] == 1.0 and rep["mortality_person_link"]["match_rate"] == 1.0
+    assert rep["omop_person_column_candidates"][0] == {"column": "person_source_value", "match_rate": 1.0}
+    assert rep["dim_patient"]["dks_with_several_clinic_numbers"] == 0
+    assert rep["dim_patient"]["clinic_numbers_with_several_unmerged_rows"] == 0
+    assert rep["clinic_numbers_with_several_person_ids"] == 0
+    assert {r["value"] for r in rep["primary_diagnosis_flag_values"]} == {"Y", "N"}
     assert rep["condition_status"] and rep["troponin_by_year"] and rep["imaging_notes_by_year"]

@@ -70,7 +70,7 @@ spark.sql("SHOW TABLES IN <catalog>.<schema>").show(200, False)
 ```
 Write down:
 - `OMOP=<catalog.schema>` holding `person`, `condition_occurrence`, `measurement`, `note`, …;
-- `NATIVE=<catalog.schema>` holding `FACT_RADIOLOGY` and `FACT_ECHO_TEST`.
+- `NATIVE=<catalog.schema>` holding `DIM_PATIENT`, `FACT_RADIOLOGY`, `FACT_ECHO_TEST`, `FACT_DIAGNOSIS` and `FACT_MORTALITY_STATUS`.
 
 **2.2 Run the preflight** (read-only; prints aggregate counts only):
 ```bash
@@ -81,9 +81,13 @@ python -m training.preflight --cdm $OMOP --native-dataset $NATIVE --out data/pre
 | Preflight section | Decide / set | Where |
 |---|---|---|
 | `omop_tables` | All `true`. Otherwise fix `--cdm`. | — |
-| `fact_echo_test_columns` | Choose the **patient key**, **echo date/time** and (optional) **echo id** columns. | copy `training/native_sources.example.json` → `training/native_sources.json` |
-| (after setting the above) re-run the preflight → `echo_person_bridge.match_rate` | Should be **≥ 0.95**. If low, try another `person_bridge` column (ask MCP how the native patient key maps to OMOP `person_id`). | `native_sources.json` |
-| `condition_status` | Which concept IDs mean *primary/principal diagnosis*. | `PRIMARY_STATUS` in `training/codesets.py` |
+| `omop_person_column_candidates` | The OMOP `person` column with the highest match rate holds `PATIENT_CLINIC_NUMBER`, the person-level key across Mayo record systems (MCP, 21 Oct 2026). Expect ≈ 1.0. | `patient_link.omop_person_column` in `training/native_sources.json` (copy `native_sources.example.json`) |
+| `dim_patient` | `dks_with_several_clinic_numbers` and `clinic_numbers_with_several_unmerged_rows` should both be **0**. Rows with `PATIENT_MERGED_FLAG = 'N'` give one row per person. | — |
+| `native_tables` → columns of `FACT_ECHO_TEST`, `FACT_DIAGNOSIS`, `FACT_MORTALITY_STATUS` | For each: the **patient key** (`PATIENT_DK` is joined through `DIM_PATIENT`; `PATIENT_CLINIC_NUMBER` directly). Echo: **date/time** and (optional) **id**. Diagnosis: **date** and **ICD code** columns. Mortality: **date of death** column. | `echo`, `diagnosis`, `mortality` in `native_sources.json` |
+| `primary_diagnosis_flag_values` | The value of `PRIMARY_DIAGNOSIS_FLAG` that means *primary* (e.g. `Y`). | `diagnosis.primary_value` |
+| (after setting the above) re-run → `echo_person_bridge`, `diagnosis_person_link`, `mortality_person_link` | Each `match_rate` should be **≥ 0.95**. `clinic_numbers_with_several_person_ids` must be **0**, or the same patient could land in both the training and test sets: stop and ask MCP. | — |
+| `mortality_by_year` | Deaths per year (Mayo record + third-party death data, Veritas). Cause of death is **not** populated. | — |
+| `condition_status` | Fallback only (primary now comes from `FACT_DIAGNOSIS`): which OMOP concept IDs mean *primary diagnosis*, if any. | `PRIMARY_STATUS` in `training/codesets.py` |
 | `troponin_by_year` | Year of the switch to Gen 5 hs-TnT (LOINC 67151-1) and whether `range_high` is filled. If not, the Mayo default upper limits are used (TRPS: men ≤15, women ≤10 ng/L). | note in the release log; adjust `DEFAULT_URL_NG_L` only if Mayo differs |
 | `imaging_notes_by_year` | Confirms radiology/echo text coverage over 2010–2025. | — |
 
@@ -95,7 +99,7 @@ Record the review in the commit message of any change.
 
 **2.5 Set governance** (thresholds and definitions) in `data/governance.json` after `init` (Phase 4). Defaults: κ ≥ 0.6, PPV/NPV ≥ 85%, annotation accuracy ≥ 90%, indeterminate ≤ 15%, type 2 MI **excluded** from AMI, post-operative AF **excluded** from new-onset AF.
 
-⛔ **Stop if** the echo match rate is below 0.9, or primary-diagnosis concepts can't be identified. Resolve with MCP first.
+⛔ **Stop if** any native match rate is below 0.9, a clinic number maps to two OMOP person_ids, or the primary-diagnosis value can't be identified. Resolve with MCP first.
 ✅ **Done when** `native_sources.json` is complete, the preflight match rate is acceptable, and the code lists are signed off by the CL.
 
 ---
@@ -122,7 +126,7 @@ EOF
 ```
 Expect hundreds of thousands of patients in `features`, and every evidence table non-empty.
 
-**3.4 Check eligibility (adults only).** Open `data/raw/cohort_attrition.json`. It gives the number of patients each criterion removed: pediatric-only, age 90+, sex not recorded, died before index, no follow-up. Counts under 11 show as `<11`.
+**3.4 Check eligibility (adults only).** Open `data/raw/cohort_attrition.json`. It gives the number of patients each criterion removed: pediatric-only, age 90+, sex not recorded, died before index (OMOP, and separately the third-party death source in `FACT_MORTALITY_STATUS`), no follow-up. Counts under 11 show as `<11`. Follow-up ends at the later of the OMOP observation end and the last live interaction (completed appointment, immunization, lab collection or surgical case). A death counts only if it is within `DEATH_GRACE_DAYS` (30) of that point; later deaths are censored at last contact, because events in between are not observed.
 - Confirm that `features.age` lies between 18 and 89.
 - Record the attrition counts in the study protocol.
 - The criteria are on the models sheet's **Eligibility** tab (I1–I5, E1–E6).
