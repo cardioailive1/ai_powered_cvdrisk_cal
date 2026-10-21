@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from cardioai_core.bundle import ModelBundle, load_bundle, nan_to_none
 from cardioai_core.equations import run_equations
-from cardioai_core.schema import CALCULATORS, FIELDS, HORIZONS, SECTIONS, validate_input
+from cardioai_core.schema import AGE_MAX, AGE_MIN, CALCULATORS, ELIGIBILITY, FIELDS, HORIZONS, SECTIONS, validate_input
 
 from . import audit, recommendations, routes_admin, routes_auth
 from .auth import Ctx, hash_password, require, revoke_user_sessions
@@ -213,6 +213,7 @@ def meta(request: Request, ctx: Ctx = Depends(require("models:read"))):
         calcs[cid] = {**{k: v for k, v in c.items()}, "performance_5y": perf}
     return nan_to_none({
         "calculators": calcs, "fields": FIELDS, "sections": SECTIONS, "horizons": list(HORIZONS),
+        "eligibility": {"age_min": AGE_MIN, "age_max": AGE_MAX, **ELIGIBILITY},
         "model": None if not b else {
             "bundle_id": b.manifest.get("bundle_id"), "provenance": b.provenance, "is_demo": b.is_demo,
             "created_utc": b.manifest.get("created_utc"), "n_patients": b.manifest.get("n_patients"),

@@ -86,3 +86,24 @@ def test_meta_and_models(auth):
     m = auth.get("/api/meta").json()
     assert set(m["calculators"]) == {"ami", "stroke", "hf", "scd", "af"} and m["model"]["is_demo"]
     assert auth.get("/api/models").status_code == 200
+
+
+@pytest.mark.parametrize("age", [17, 12, 0.5])
+def test_pediatric_patients_refused(auth, age):
+    r = auth.post("/api/predict", json={"calculator": "ami", "patient": dict(PATIENT, age=age)})
+    assert r.status_code == 422 and any("adults" in e and "children" in e for e in r.json()["errors"])
+
+
+def test_age_over_89_refused(auth):
+    r = auth.post("/api/predict", json={"calculator": "hf", "patient": dict(PATIENT, age=92)})
+    assert r.status_code == 422 and any("18–89" in e for e in r.json()["errors"])
+
+
+def test_age_bounds_inclusive(auth):
+    for age in (18, 89):
+        assert auth.post("/api/predict", json={"calculator": "stroke", "patient": dict(PATIENT, age=age)}).status_code == 200
+
+
+def test_eligibility_published_in_meta(auth):
+    e = auth.get("/api/meta").json()["eligibility"]
+    assert e["age_min"] == 18 and e["age_max"] == 89 and any(x["id"] == "E1" for x in e["exclusion"])
