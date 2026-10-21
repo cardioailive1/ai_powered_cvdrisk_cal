@@ -17,8 +17,10 @@ Writes to --out:
     event_notes.parquet             notes within the window of candidate events (for NLP + adjudicators)
     baseline_imaging_notes.parquet  pre-index imaging/echo reports (CAC, LVEF annotation)
 
-Note sources: OMOP `note` (includes radiology reports = FACT_RADIOLOGY.RADIOLOGY_REPORT) plus, with
---native-dataset, echo notes from the Mayo Clinic Platform native table FACT_ECHO_TEST.ECHO_NOTE.
+Note sources: OMOP `note` (includes radiology reports = FACT_RADIOLOGY.RADIOLOGY_REPORT). With --native-dataset,
+the Mayo Clinic Platform native tables add: echo notes (FACT_ECHO_TEST.ECHO_NOTE), the primary-diagnosis flag
+(FACT_DIAGNOSIS.PRIMARY_DIAGNOSIS_FLAG) and deaths + last live interaction (FACT_MORTALITY_STATUS), all linked to
+OMOP person through PATIENT_CLINIC_NUMBER (DIM_PATIENT).
 Columns not yet confirmed by Mayo Clinic Platform are "CONFIRM:" placeholders (training/codesets.py);
 set them in training/native_sources.json — a real run refuses while any remain.
 
@@ -294,40 +296,66 @@ WHERE lower(n.note_text) RLIKE {_lit(cs.NOTE_PREFILTER)}
     return sql
 
 
-# ------------------------------------------------- native (non-OMOP) notes ----
+# ------------------------------------------------- native (non-OMOP) tables ----
 NATIVE_CONFIG = Path(__file__).parent / "native_sources.json"
+NATIVE_SOURCE_NAMES = ("patient_link", "echo", "diagnosis", "mortality")
 
 
 def load_native_config(path: str | Path | None = None) -> dict:
     import json
-    cfg = json.loads(json.dumps(cs.NATIVE_NOTE_SOURCES))
+    cfg = json.loads(json.dumps(cs.NATIVE_SOURCES))
     p = Path(path) if path else NATIVE_CONFIG
     if p.exists():
         for src, over in json.loads(p.read_text()).items():
+            over = dict(over)
+            if src == "echo" and "person_bridge" in over:        # older files: echo.person_bridge -> patient_link
+                cfg["patient_link"]["omop_person_column"] = over.pop("person_bridge")
             cfg.setdefault(src, {}).update(over)
     return cfg
 
 
-def unconfirmed(cfg: dict) -> list[str]:
-    return [f"{src}.{k}: {v[len('CONFIRM:'):]}" for src, c in cfg.items() for k, v in c.items()
-            if isinstance(v, str) and v.startswith("CONFIRM:") and k != "id_column"]
+def unconfirmed(cfg: dict, sources: tuple[str, ...] | None = None) -> list[str]:
+    return [f"{src}.{k}: {v[len('CONFIRM:'):]}" for src, c in cfg.items() if sources is None or src in sources
+            for k, v in c.items() if isinstance(v, str) and v.startswith("CONFIRM:") and k != "id_column"]
 
 
 def _col(v: str) -> str:
     return f"/* {v} */ CONFIRM_COLUMN" if v.startswith("CONFIRM:") else v
 
 
+def _val(v: str) -> str:
+    return f"/* {v} */ 'CONFIRM_VALUE'" if v.startswith("CONFIRM:") else _lit(v)
+
+
+def native_join(native: str, cfg: dict, src: str, alias: str = "x", person: str = "p") -> str:
+    """JOIN lines from an OMOP person row (alias `person`) to a native FACT table (alias `alias`).
+
+    PATIENT_CLINIC_NUMBER is the person-level key across medical-record systems; OMOP person carries it in
+    patient_link.omop_person_column. FACT tables keyed by PATIENT_DK go through DIM_PATIENT: every PATIENT_DK of the
+    person (all systems, merged or not) maps to the same clinic number, so no record is lost."""
+    link, e = cfg["patient_link"], cfg[src]
+    omop, pat = _col(link["omop_person_column"]), _col(e["patient_column"])
+    mcn = _col(link["clinic_number_column"])
+    if e["patient_column"] == link["dk_column"]:
+        dp = f"dp_{alias}"
+        return (f"JOIN {native}.{link['table']} {dp} ON cast({dp}.{mcn} AS STRING) = cast({person}.{omop} AS STRING)\n"
+                f"JOIN {native}.{e['table']} {alias} ON {alias}.{pat} = {dp}.{_col(link['dk_column'])}")
+    return f"JOIN {native}.{e['table']} {alias} ON cast({alias}.{pat} AS STRING) = cast({person}.{omop} AS STRING)"
+
+
 def render_native_sql(native: str, cdm: str, cfg: dict, lookback_days: int = 730) -> dict[str, str]:
     e = cfg["echo"]
-    txt, pat, dt_, br = _col(e["text_column"]), _col(e["patient_column"]), _col(e["date_column"]), _col(e["person_bridge"])
+    txt, pat, dt_ = _col(e["text_column"]), _col(e["patient_column"]), _col(e["date_column"])
     nid = (f"cast(x.{e['id_column']} AS STRING)" if not e["id_column"].startswith("CONFIRM:")
            else f"cast(xxhash64(concat(cast(x.{pat} AS STRING), cast(x.{dt_} AS STRING), x.{txt})) AS STRING)")
     base = f"""SELECT {{who}}, concat('ECHO-', {nid}) AS note_id, to_date(x.{dt_}) AS note_date,
        '{e['title']}' AS note_title, x.{txt} AS note_text
 FROM {{src}}
 JOIN {cdm}.person p ON p.person_id = {{pid}}
-JOIN {native}.{e['table']} x ON cast(x.{pat} AS STRING) = cast(p.{br} AS STRING)
+{native_join(native, cfg, "echo")}
 WHERE x.{txt} IS NOT NULL"""
+    d = cfg["diagnosis"]
+    m = cfg["mortality"]
     return {
         "10_echo_notes_baseline": "-- Pre-index echo reports (LVEF annotation) from the native FACT_ECHO_TEST table\n"
         + base.format(who="co.person_id", src="cvd_cohort co", pid="co.person_id")
@@ -336,7 +364,43 @@ WHERE x.{txt} IS NOT NULL"""
         + "WITH triggers AS (SELECT DISTINCT person_id, event_date AS d FROM cvd_candidate_codes)\n"
         + base.format(who="DISTINCT t.person_id", src="triggers t", pid="t.person_id")
         + f"\n  AND to_date(x.{dt_}) BETWEEN date_sub(t.d, 7) AND date_add(t.d, 30)\n",
+        "12_primary_dx": f"""-- Candidate codes recorded as the PRIMARY diagnosis in FACT_DIAGNOSIS (PRIMARY_DIAGNOSIS_FLAG; MCP 21 Oct 2026).
+-- Same person, same ICD code (dot ignored), diagnosis date within 1 day of the OMOP condition date.
+SELECT DISTINCT cc.person_id, cc.event_date, cc.code
+FROM cvd_candidate_codes cc
+JOIN {cdm}.person p ON p.person_id = cc.person_id
+{native_join(native, cfg, "diagnosis")}
+WHERE upper(cast(x.{_col(d['primary_flag_column'])} AS STRING)) = upper({_val(d['primary_value'])})
+  AND to_date(x.{_col(d['date_column'])}) BETWEEN date_sub(cc.event_date, 1) AND date_add(cc.event_date, 1)
+  AND regexp_replace(upper(cast(x.{_col(d['code_column'])} AS STRING)), '[.]', '') = regexp_replace(upper(cc.code), '[.]', '')
+""",
+        "13_mortality": f"""-- Death date (Mayo record + third-party death data) and last live interaction from FACT_MORTALITY_STATUS
+SELECT co.person_id, MIN(to_date(x.{_col(m['death_date_column'])})) AS death_date_ext,
+       MAX(to_date(x.{_col(m['last_live_column'])})) AS last_live_date
+FROM cvd_cohort co
+JOIN {cdm}.person p ON p.person_id = co.person_id
+{native_join(native, cfg, "mortality")}
+GROUP BY co.person_id
+""",
     }
+
+
+def keep_people(df: pd.DataFrame, cohort: pd.DataFrame) -> pd.DataFrame:
+    return df[df["person_id"].isin(cohort["person_id"])].reset_index(drop=True)
+
+
+def apply_mortality(cohort: pd.DataFrame, mortality: pd.DataFrame | None) -> tuple[pd.DataFrame, int]:
+    """Combine OMOP death with FACT_MORTALITY_STATUS: earliest death date wins; the end of follow-up becomes the
+    later of OMOP observation end and the last live interaction. Patients the third-party source shows as dead on
+    or before index are removed (exclusion E4). Returns the cohort and how many were removed."""
+    if mortality is None or not len(mortality):
+        return cohort, 0
+    c = cohort.merge(mortality, on="person_id", how="left")
+    death = pd.concat([pd.to_datetime(c["death_date"]), pd.to_datetime(c["death_date_ext"])], axis=1).min(axis=1)
+    c["death_date"] = death
+    c["obs_end"] = pd.concat([pd.to_datetime(c["obs_end"]), pd.to_datetime(c["last_live_date"])], axis=1).max(axis=1)
+    dead = death.notna() & (death <= pd.to_datetime(c["index_date"]))
+    return c.loc[~dead].drop(columns=["death_date_ext", "last_live_date"]).reset_index(drop=True), int(dead.sum())
 
 
 def merge_notes(*frames: pd.DataFrame) -> pd.DataFrame:
@@ -419,8 +483,11 @@ def assemble_features(cohort: pd.DataFrame, meas: pd.DataFrame, hist: pd.DataFra
 
     obs_end = pd.to_datetime(df["obs_end"])
     death = pd.to_datetime(df["death_date"])
+    # a death long after the last contact is not an observed follow-up death: censor at last contact instead
+    observed = death.notna() & (death <= obs_end + pd.Timedelta(days=cs.DEATH_GRACE_DAYS))
+    death = death.where(observed)
     df["death_days"] = (death - df["index_date"]).dt.days
-    end = pd.concat([obs_end, death], axis=1).min(axis=1)
+    end = death.where(death.notna(), obs_end)            # an observed death ends follow-up
     df["followup_days"] = (end - df["index_date"]).dt.days
     df = df.drop(columns=["gender_concept_id", "race_concept_id", "ethnicity_concept_id", "obs_end", "death_date"])
     return df.reset_index()
@@ -446,10 +513,13 @@ def _decimals_to_float(pdf: pd.DataFrame) -> pd.DataFrame:
     return pdf
 
 
-def write_attrition(df: pd.DataFrame, out: Path, min_cell: int = 11) -> dict:
+def write_attrition(df: pd.DataFrame, out: Path, min_cell: int = 11, died_external: int | None = None) -> dict:
     """Eligibility flow (how many patients each criterion removed). Aggregate counts only, cells < min_cell suppressed."""
     import json
     row = {k: int(v) for k, v in df.iloc[0].items()} if len(df) else {}
+    if died_external is not None and row:
+        row["excluded_died_before_index_external_source"] = died_external
+        row["final_cohort"] -= died_external
     shown = {k: (v if v == 0 or v >= min_cell else f"<{min_cell}") for k, v in row.items()}
     rep = {"age_min": AGE_MIN, "age_max": AGE_MAX, "counts": shown,
            "note": "Adults only. Patients with no adult visit in the index window are excluded; pediatric patients never enter the cohort."}
@@ -463,11 +533,12 @@ def run_extract(spark, a) -> Path:
     todo = unconfirmed(ncfg)
     if a.native_dataset:
         if todo:
-            raise SystemExit("Confirm these FACT_ECHO_TEST settings in training/native_sources.json before extracting:\n  "
-                             + "\n  ".join(todo))
+            raise SystemExit("Confirm these native-table settings in training/native_sources.json before extracting "
+                             "(python -m training.preflight lists the columns):\n  " + "\n  ".join(todo))
         sql.update(render_native_sql(a.native_dataset, a.cdm, ncfg, a.lookback_days))
     else:
-        log.warning("--native-dataset not given: echo notes from FACT_ECHO_TEST are NOT included (LVEF coverage will be lower)")
+        log.warning("--native-dataset not given: FACT_ECHO_TEST echo notes, FACT_DIAGNOSIS primary flags and "
+                    "FACT_MORTALITY_STATUS deaths are NOT included")
 
     def q(name: str) -> pd.DataFrame:
         log.info("Running %s ...", name)
@@ -480,24 +551,39 @@ def run_extract(spark, a) -> Path:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    attrition = write_attrition(q("00_cohort_attrition"), out)
-    log.info("Eligibility: %s", attrition)
+    attrition_counts = q("00_cohort_attrition")
     cohort = q("01_cohort")
+    died_external = None
+    if a.native_dataset:
+        cohort, died_external = apply_mortality(cohort, q("13_mortality"))
+    attrition = write_attrition(attrition_counts, out, died_external=died_external)
+    log.info("Eligibility: %s", attrition)
     log.info("Cohort: %d adult patients", len(cohort))
     imaging = q("06_baseline_imaging_notes")
     imaging["note_title"] = "Imaging report"
     if a.native_dataset:
         imaging = merge_notes(imaging, q("10_echo_notes_baseline"))
+    imaging = keep_people(imaging, cohort)
     imaging["note_id"] = imaging["note_id"].astype(str)
     feats = assemble_features(cohort, q("02_measurements"), q("03_history"), q("04_drugs"), imaging)
     feats.to_parquet(out / "features.parquet", index=False)
     imaging.to_parquet(out / "baseline_imaging_notes.parquet", index=False)
-    q("05_candidate_codes").to_parquet(out / "candidate_codes.parquet", index=False)
-    q("07_evidence_procedures").to_parquet(out / "evidence_procedures.parquet", index=False)
-    q("08_evidence_labs").to_parquet(out / "evidence_labs.parquet", index=False)
+    def keep(df: pd.DataFrame) -> pd.DataFrame:      # drop rows of patients removed after the SQL (exclusion E4)
+        return df[df["person_id"].isin(feats["person_id"])].reset_index(drop=True)
+
+    codes = keep(q("05_candidate_codes"))
+    codes["primary_native"] = 0
+    if a.native_dataset:
+        prim = q("12_primary_dx").assign(primary_native=1)
+        codes = codes.drop(columns="primary_native").merge(prim, on=["person_id", "event_date", "code"], how="left")
+        codes["primary_native"] = codes["primary_native"].fillna(0).astype(int)
+    codes.to_parquet(out / "candidate_codes.parquet", index=False)
+    keep(q("07_evidence_procedures")).to_parquet(out / "evidence_procedures.parquet", index=False)
+    keep(q("08_evidence_labs")).to_parquet(out / "evidence_labs.parquet", index=False)
     notes = q("09_event_notes")
     if a.native_dataset:
         notes = merge_notes(notes, q("11_echo_notes_event"))
+    notes = keep(notes)
     notes["note_id"] = notes["note_id"].astype(str)
     notes.to_parquet(out / "event_notes.parquet", index=False)
     log.info("Raw curation dataset written to %s — next: python -m curation.pipeline label", out)
@@ -510,7 +596,7 @@ def parse_args(argv=None):
     ap.add_argument("--index-start", default=INDEX_WINDOW[0])
     ap.add_argument("--index-end", default=INDEX_WINDOW[1])
     ap.add_argument("--lookback-days", type=int, default=730)
-    ap.add_argument("--native-dataset", help="Spark catalog.schema holding Mayo native tables (FACT_ECHO_TEST); enables echo notes")
+    ap.add_argument("--native-dataset", help="Spark catalog.schema holding Mayo native tables (DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS, FACT_MORTALITY_STATUS)")
     ap.add_argument("--native-config", help="JSON overriding training/codesets.NATIVE_NOTE_SOURCES (default training/native_sources.json)")
     ap.add_argument("--render-only", action="store_true", help="write SQL to training/sql/ and exit (no data access)")
     ap.add_argument("--out", default="data/raw")
@@ -532,7 +618,7 @@ def main(argv=None) -> None:
         log.info("Wrote %d Spark SQL files to %s", len(sql), SQL_DIR)
         todo = unconfirmed(ncfg)
         if todo:
-            log.warning("Echo-note SQL (10_, 11_) has unconfirmed columns:\n  " + "\n  ".join(todo))
+            log.warning("Native-table SQL (10_ to 13_) has unconfirmed columns:\n  " + "\n  ".join(todo))
         return
     run_extract(get_spark(), a)
 

@@ -1,4 +1,4 @@
-"""Build mock OMOP CDM tables (+ a mock Mayo FACT_ECHO_TEST table) from the synthetic raw dataset,
+"""Build mock OMOP CDM tables (+ mock Mayo native tables DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS, FACT_MORTALITY_STATUS) from the synthetic raw dataset,
 so the Spark SQL extraction can be tested end to end without patient data."""
 from __future__ import annotations
 
@@ -113,12 +113,28 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     note = pd.DataFrame({"note_id": notes["note_id"].astype("int64"), "person_id": notes["person_id"],
                          "note_date": pd.to_datetime(notes["note_date"]).dt.date, "note_title": notes["note_title"], "note_text": notes["note_text"]})
     echo = ev[is_echo]
-    fact_echo = pd.DataFrame({"ECHO_ID": echo["note_id"].astype(str), "PATIENT_CLINIC_NUMBER": "MCN" + echo["person_id"].astype(str),
+    # DIM_PATIENT: one row per medical-record system. Even person_ids also have a second, merged PATIENT_DK (another
+    # system); their echo rows are filed under that second key, so the link must go through the clinic number.
+    pid = F["person_id"].astype("int64")
+    dim = pd.concat([pd.DataFrame({"PATIENT_DK": pid * 10, "PATIENT_CLINIC_NUMBER": "MCN" + pid.astype(str), "PATIENT_MERGED_FLAG": "N"}),
+                     pd.DataFrame({"PATIENT_DK": pid[pid % 2 == 0] * 10 + 1, "PATIENT_CLINIC_NUMBER": "MCN" + pid[pid % 2 == 0].astype(str),
+                                   "PATIENT_MERGED_FLAG": "Y"})], ignore_index=True)
+    dk = lambda p: p.astype("int64") * 10 + (p.astype("int64") % 2 == 0)  # noqa: E731  (second-system key for even ids)
+    fact_echo = pd.DataFrame({"ECHO_ID": echo["note_id"].astype(str), "PATIENT_DK": dk(echo["person_id"]),
                               "ECHO_DTM": pd.to_datetime(echo["note_date"]) + pd.Timedelta(hours=10), "ECHO_NOTE": echo["note_text"]})
+    cc = raw["candidate_codes"]
+    fact_dx = pd.DataFrame({"PATIENT_DK": cc["person_id"].astype("int64") * 10,
+                            "DIAGNOSIS_DTM": pd.to_datetime(cc["event_date"]) + pd.Timedelta(hours=9),
+                            "DIAGNOSIS_CODE": cc["code"].str.replace(".", "", regex=False),
+                            "PRIMARY_DIAGNOSIS_FLAG": np.where(cc["condition_status_concept_id"].isin(cs.PRIMARY_STATUS), "Y", "N"),
+                            "ENCOUNTER_NUMBER": np.arange(len(cc)).astype(str)})
+    death_ts = pd.to_datetime(F["index_date"] + pd.to_timedelta(F["death_days"], unit="D"))
+    mort = pd.DataFrame({"PATIENT_DK": pid * 10, "DEATH_DTM": death_ts,
+                         "EHR_LAST_LIVE_INTERACTION_DTM": F["index_date"] + pd.to_timedelta(F["followup_days"], unit="D")})
     empty_obs = pd.DataFrame({"person_id": pd.Series(dtype="int64"), "observation_source_concept_id": pd.Series(dtype="int64"),
                               "observation_date": pd.Series(dtype="object")})
     return {"person": person, "observation_period": obs, "death": death, "visit_occurrence": pd.DataFrame(visits),
             "measurement": pd.DataFrame(meas), "condition_occurrence": pd.DataFrame(cond), "observation": empty_obs,
             "drug_exposure": pd.DataFrame(drugs), "concept_ancestor": pd.DataFrame(anc),
             "procedure_occurrence": pd.DataFrame(procs), "note": note, "concept": pd.DataFrame(C.rows),
-            "FACT_ECHO_TEST": fact_echo}
+            "FACT_ECHO_TEST": fact_echo, "DIM_PATIENT": dim, "FACT_DIAGNOSIS": fact_dx, "FACT_MORTALITY_STATUS": mort}

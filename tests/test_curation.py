@@ -203,7 +203,37 @@ def test_reader_policy(env):
 def test_echo_native_config_requires_confirmation():
     from training.extract import load_native_config, render_native_sql, unconfirmed
     cfg = load_native_config("/nonexistent.json")
-    assert len(unconfirmed(cfg)) == 3
-    cfg["echo"].update(patient_column="PATIENT_CLINIC_NUMBER", date_column="ECHO_DTM", person_bridge="person_source_value")
+    assert len(unconfirmed(cfg)) == 9 and len(unconfirmed(cfg, ("echo",))) == 2
+    cfg["patient_link"]["omop_person_column"] = "person_source_value"
+    cfg["echo"].update(patient_column="PATIENT_CLINIC_NUMBER", date_column="ECHO_DTM")
+    cfg["diagnosis"].update(patient_column="PATIENT_DK", date_column="DX_DTM", code_column="DX_CODE", primary_value="Y")
+    cfg["mortality"].update(patient_column="PATIENT_DK", death_date_column="DEATH_DTM")
     sql = render_native_sql("p.native", "p.omop", cfg)
-    assert not unconfirmed(cfg) and "CONFIRM" not in sql["10_echo_notes_baseline"] and "ECHO_NOTE" in sql["11_echo_notes_event"]
+    assert not unconfirmed(cfg) and not any("CONFIRM" in q for q in sql.values()) and "ECHO_NOTE" in sql["11_echo_notes_event"]
+    assert "DIM_PATIENT" not in sql["10_echo_notes_baseline"]               # clinic number: direct join
+    assert "p.native.DIM_PATIENT" in sql["12_primary_dx"] and "PRIMARY_DIAGNOSIS_FLAG" in sql["12_primary_dx"]
+    assert "EHR_LAST_LIVE_INTERACTION_DTM" in sql["13_mortality"]
+
+
+def test_old_native_config_file_still_loads(tmp_path):
+    import json
+
+    from training.extract import load_native_config
+    f = tmp_path / "old.json"
+    f.write_text(json.dumps({"echo": {"patient_column": "PATIENT_CLINIC_NUMBER", "person_bridge": "person_source_value"}}))
+    cfg = load_native_config(f)
+    assert cfg["patient_link"]["omop_person_column"] == "person_source_value" and "person_bridge" not in cfg["echo"]
+
+
+def test_external_mortality_rules():
+    import pandas as pd
+
+    from training.extract import apply_mortality
+    co = pd.DataFrame({"person_id": [1, 2, 3], "index_date": pd.to_datetime(["2015-01-01"] * 3),
+                       "obs_end": pd.to_datetime(["2018-01-01"] * 3), "death_date": [pd.NaT, pd.NaT, pd.Timestamp("2017-06-01")]})
+    m = pd.DataFrame({"person_id": [1, 2, 3], "death_date_ext": pd.to_datetime(["2014-12-01", None, "2017-07-01"]),
+                      "last_live_date": pd.to_datetime(["2014-11-01", "2019-03-01", None])})
+    out, removed = apply_mortality(co, m)
+    assert removed == 1 and list(out["person_id"]) == [2, 3]               # E4 from the third-party death source
+    assert out.loc[out.person_id == 2, "obs_end"].iloc[0] == pd.Timestamp("2019-03-01")   # last live interaction extends
+    assert out.loc[out.person_id == 3, "death_date"].iloc[0] == pd.Timestamp("2017-06-01")  # earliest death wins

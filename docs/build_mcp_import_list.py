@@ -300,9 +300,18 @@ conc = [
      "9201 = inpatient, 9203 = emergency room, 262 = ER and inpatient", "Visit containing the candidate code", "Adjudication evidence (acute_visit vote)"],
     [ALL5, "Observation time", "observation_period", "observation_period_start_date, observation_period_end_date", "—",
      "≥ 365 days before index; > 0 days after", "Eligibility I3/E5; follow-up and censoring"],
-    [ALL5, "Death", "death", "death_date, cause_concept_id", "—", "Any date", "Exclusion E4; censoring; SCD evidence (death within 1 day)"],
-    ["AMI, Stroke, HF, SCD", "Primary diagnosis", "condition_occurrence", "condition_status_concept_id (or condition_type_concept_id)",
-     ", ".join(map(str, cs.PRIMARY_STATUS)) + " = primary / principal (to confirm with MCP)", "Candidate code rows", "Adjudication evidence (primary_dx vote)"],
+    [ALL5, "Death (all-cause)", "death + native FACT_MORTALITY_STATUS", "death_date; FACT_MORTALITY_STATUS date of death (Mayo record + third-party Veritas data)",
+     "Cause of death is not populated (MCP, 21 Oct 2026): all-cause death only", "Any date; counts as a follow-up death within 30 days of last contact",
+     "Exclusion E4; censoring; SCD evidence (death within 1 day)"],
+    [ALL5, "Last live interaction", "native FACT_MORTALITY_STATUS", "EHR_LAST_LIVE_INTERACTION_DTM",
+     "Completed appointment, immunization, lab collection or surgical case", "After index", "End of follow-up (with OMOP observation end)"],
+    [ALL5, "Person-level patient key", "native DIM_PATIENT", "PATIENT_DK, PATIENT_CLINIC_NUMBER, PATIENT_MERGED_FLAG",
+     "PATIENT_CLINIC_NUMBER is the same person across record systems; PATIENT_MERGED_FLAG = 'N' gives one row per person", "—",
+     "Links every native table to OMOP person; keeps one patient on one side of the train/test split"],
+    ["AMI, Stroke, HF, SCD", "Primary diagnosis", "native FACT_DIAGNOSIS (OMOP condition_occurrence as fallback)",
+     "PRIMARY_DIAGNOSIS_FLAG, ENCOUNTER_NUMBER, patient key, diagnosis date, ICD code",
+     "PRIMARY_DIAGNOSIS_FLAG = primary value (to confirm); OMOP fallback " + ", ".join(map(str, cs.PRIMARY_STATUS)),
+     "Same person, code and date (±1 day) as each candidate code", "Adjudication evidence (primary_dx vote)"],
     [ALL5, "Diagnosis codes", "condition_occurrence; observation", "*_concept_id, *_source_concept_id, *_source_value, *_date, visit_occurrence_id",
      "ICD10CM, ICD9CM source concepts", "See History and Outcome tabs", "History flags; outcome candidates"],
     [ALL5, "Code look-up", "concept; concept_ancestor", "concept_id, concept_code, vocabulary_id, concept_name; ancestor/descendant ids",
@@ -321,11 +330,15 @@ tables = [
     ["measurement", "OMOP CDM", "measurement_id, person_id, measurement_concept_id, measurement_date, measurement_datetime, value_as_number, unit_concept_id, unit_source_value, range_high", "All 5", "Labs/vitals; troponin, BNP evidence", "Yes"],
     ["procedure_occurrence", "OMOP CDM", "person_id, procedure_concept_id, procedure_source_concept_id, procedure_source_value, procedure_date", "All 5", "Adjudication evidence", "Yes"],
     ["drug_exposure", "OMOP CDM", "person_id, drug_concept_id, drug_exposure_start_date, drug_exposure_end_date", "All 5", "Medication flags", "Yes"],
-    ["death", "OMOP CDM", "person_id, death_date, cause_concept_id", "All 5", "Exclusion, censoring, SCD evidence", "Yes"],
+    ["death", "OMOP CDM", "person_id, death_date", "All 5", "Exclusion, censoring, SCD evidence", "Yes"],
     ["note", "OMOP CDM", "note_id, person_id, note_date, note_title, note_text", "All 5", "CAC, LVEF, event-window notes (includes FACT_RADIOLOGY reports)", "Yes"],
     ["concept", "OMOP vocabulary", "concept_id, concept_code, vocabulary_id, concept_name, domain_id", "All 5", "Code look-up", "Yes"],
     ["concept_ancestor", "OMOP vocabulary", "ancestor_concept_id, descendant_concept_id", "All 5", "ATC → RxNorm drug mapping", "Yes"],
+    ["DIM_PATIENT", "Mayo native", "PATIENT_DK, PATIENT_CLINIC_NUMBER, PATIENT_MERGED_FLAG (confirmed 21 Oct 2026)", "All 5", "Person-level key linking native tables to OMOP person", "Yes"],
     ["FACT_ECHO_TEST", "Mayo native", "ECHO_NOTE (confirmed); patient key, echo date/time, echo id (to confirm)", "HF, SCD, AF (LVEF)", "LVEF at baseline and around HF candidates", "Yes"],
+    ["FACT_DIAGNOSIS", "Mayo native", "PRIMARY_DIAGNOSIS_FLAG, ENCOUNTER_NUMBER (confirmed); patient key, diagnosis date, ICD code (to confirm)", "AMI, Stroke, HF, SCD", "Primary-diagnosis flag for candidate codes", "Yes"],
+    ["FACT_MORTALITY_STATUS", "Mayo native", "EHR_LAST_LIVE_INTERACTION_DTM (confirmed); patient key, date of death (to confirm)", "All 5", "Deaths outside Mayo (third-party data); end of follow-up", "Yes"],
+    ["FACT_ENCOUNTERS", "Mayo native", "ENCOUNTER_NUMBER, ENCOUNTER_TYPE", "AMI, Stroke, HF, SCD", "Optional: encounter type if OMOP visit type is incomplete", "Optional"],
     ["FACT_RADIOLOGY", "Mayo native", "RADIOLOGY_REPORT (already in OMOP note.note_text)", "All 5", "Only if OMOP note does not hold every report", "Confirm"],
 ]
 
@@ -372,7 +385,7 @@ info = [
     ("Prepared by", "CardioAI (cardioailive.com)"),
     ("Date", date.today().isoformat()),
     ("Source of truth", "Generated from the CardioAI code sets (cardioai_core/schema.py, training/codesets.py, training/code_lists/candidate_codes.csv). The extraction SQL uses exactly these lists."),
-    ("Data model", "OMOP CDM on Spark SQL, plus Mayo native tables FACT_ECHO_TEST and FACT_RADIOLOGY."),
+    ("Data model", "OMOP CDM on Spark SQL, plus Mayo native tables DIM_PATIENT, FACT_ECHO_TEST, FACT_RADIOLOGY, FACT_DIAGNOSIS and FACT_MORTALITY_STATUS."),
     ("Population", f"Adults aged {AGE_MIN}–{AGE_MAX} at the index visit. No pediatric patients. Full criteria on the Eligibility tab."),
     ("Index date", f"One outpatient visit per patient, {i0} to {i1}."),
     ("Time windows", f"Baseline labs, vitals and reports: {lb} days up to index. Medications: {drug_lb} days before index. History: any time on or before index. Outcomes: any time after index. Adjudication evidence: around each candidate event (see each tab)."),
@@ -470,7 +483,7 @@ for label, fn in lines:
     for j, k in enumerate(CALC_NAMES.values(), 3):
         ws.cell(row=r, column=j, value=fn(k)).font = BODY
 
-sheet("Source tables", "Tables and columns read", "Read-only access is needed to these tables in the de-identified OMOP CDM and the native FACT tables. Please confirm the Spark catalog and schema names (Open confirmations #2).",
+sheet("Source tables", "Tables and columns read", "Read-only access is needed to these tables in the de-identified OMOP CDM and the native FACT tables. Please confirm the Spark catalog and schema names (Open confirmations #2) and the native columns still marked 'to confirm' (#12–#14).",
       ["Table", "Model", "Columns read", "Calculators", "Used for", "Access needed"], tables, [24, 16, 80, 18, 44, 14])
 sheet("Labs & vitals", "Labs and vitals (OMOP measurement, LOINC)", "Baseline values are the latest in the look-back window, harmonised to the units shown. Evidence labs are pulled for every result after index and read around each candidate event.",
       ["Calculators", "Data element", "Purpose", "Vocabulary", "Code", "LOINC name", "Unit", "OMOP table", "Time window", "Notes"],
@@ -490,7 +503,7 @@ sheet("Medications", "Medications (OMOP drug_exposure)", "ATC classes are mapped
 sheet("Notes & reports", "Clinical notes and reports", "Notes are read only inside the workspace (keyword prefilter in SQL, NLP in Python). Note text never leaves the workspace.",
       ["Calculators", "Data element", "Purpose", "Source", "Columns", "Time window", "Text filter", "Note types"],
       notes, [16, 28, 24, 36, 34, 40, 50, 34])
-sheet("Concepts & demographics", "Person, visit, death and status concepts", "Concept IDs are standard OMOP concepts; please confirm the primary-diagnosis status values (Open confirmations #3).",
+sheet("Concepts & demographics", "Person, visit, death and status concepts", "Concept IDs are standard OMOP concepts; native columns marked 'to confirm' are in Open confirmations #12–#14.",
       ["Calculators", "Data element", "OMOP table", "Columns", "Concept IDs / values", "Window", "Used for"],
       conc, [16, 28, 26, 50, 50, 34, 40])
 sheet("Eligibility", "Inclusion and exclusion criteria", f"Adults {AGE_MIN}–{AGE_MAX} only; pediatric patients (under {AGE_MIN}) are excluded from training, validation and use.",
