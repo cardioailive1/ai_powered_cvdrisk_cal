@@ -161,9 +161,10 @@ class _RunData:
             from training.codesets import INPATIENT_ED_VISITS, PRIMARY_STATUS
             vt = {9201: "Inpatient", 9203: "Emergency", 262: "ED → Inpatient", 9202: "Outpatient"}
             for r in sub.to_dict("records"):
+                prim = r["condition_status_concept_id"] in PRIMARY_STATUS or int(_clean(r.get("primary_native")) or 0) == 1
                 enc.append({"date": r["event_date"].date().isoformat(), "day": (r["event_date"] - d).days, "code": r["code"],
                             "visit": vt.get(r["visit_concept_id"], "Other"),
-                            "position": "Primary" if r["condition_status_concept_id"] in PRIMARY_STATUS else "Secondary"})
+                            "position": "Primary" if prim else "Secondary"})
         labs = []
         for x in self.ev.labs_for(pid, d, (w[0], min(w[1], 7))):
             url = x.get("url")

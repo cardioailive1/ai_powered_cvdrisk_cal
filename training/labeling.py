@@ -49,6 +49,15 @@ MENTION_KEYS = {
 
 
 # ------------------------------------------------------------------ episodes
+def is_primary(codes: pd.DataFrame) -> pd.Series:
+    """Primary (principal) diagnosis: FACT_DIAGNOSIS.PRIMARY_DIAGNOSIS_FLAG (extract.py, primary_native) or, as a
+    fallback, an OMOP condition_status concept in cs.PRIMARY_STATUS."""
+    omop = codes["condition_status_concept_id"].isin(cs.PRIMARY_STATUS)
+    if "primary_native" in codes:
+        return omop | (codes["primary_native"].fillna(0).astype(int) == 1)
+    return omop
+
+
 def _cid(pid: Any, fam: str, d: pd.Timestamp, src: str) -> str:
     return "C" + hashlib.sha1(f"{pid}|{fam}|{d:%Y-%m-%d}|{src}".encode()).hexdigest()[:12]
 
@@ -60,7 +69,7 @@ def build_episodes(codes: pd.DataFrame, procs: pd.DataFrame, features: pd.DataFr
     c["event_date"] = pd.to_datetime(c["event_date"])
     c = c[c["event_date"] > c["index_date"]]
     c["acute"] = c["visit_concept_id"].isin(cs.INPATIENT_ED_VISITS)
-    c["primary"] = c["condition_status_concept_id"].isin(cs.PRIMARY_STATUS)
+    c["primary"] = is_primary(c)
     c = c.sort_values(["person_id", "family", "event_date"])
 
     gap = np.timedelta64(EPISODE_GAP_DAYS, "D")
