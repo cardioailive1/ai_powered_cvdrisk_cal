@@ -51,7 +51,8 @@ def evaluate(db: Session, data_dir, run: LabelRun, report: dict | None, m: dict 
 
     # 1. audit
     if report is None:
-        add("audit", "Automatic audit completed and reviewed", "pending", "Run the automatic audit")
+        add("audit", "Automatic audit completed and reviewed", "pending",
+            "Required step after automatic labelling: run the automatic audit before any review")
     else:
         items = audit_items(db, run.id, report)
         unresolved = [i["id"] for i in items if not i["resolved"]]

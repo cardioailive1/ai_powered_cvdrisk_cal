@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from cardioai_core.schema import FAMILIES
 
+from .runs import audit_problem
 from .store import Case, LabelRun, Read, User, log_event, utcnow
 
 OUTCOMES = ("event", "not_event", "indeterminate")
@@ -193,7 +194,13 @@ def _update_status(db: Session, case: Case, gov: dict, username: str) -> None:
         log_event(db, username, "adjudication.case_final", case.id, {"method": case.final["method"], "family": case.family})
 
 
+def _require_audited(db: Session, case: Case) -> None:
+    if p := audit_problem(db, db.get(LabelRun, case.label_run_id)):
+        raise AdjudicationError(p)
+
+
 def submit_read(db: Session, case: Case, user: User, decision: dict, gov: dict) -> Case:
+    _require_audited(db, case)
     if case.status == "final":
         raise AdjudicationError("This case is already final.")
     reads = list(db.scalars(select(Read).where(Read.case_id == case.id)))
@@ -233,6 +240,7 @@ def queue_for(db: Session, run_id: str, user: User) -> dict:
 
 
 def reader_view(db: Session, case: Case, user: User) -> dict:
+    _require_audited(db, case)
     reads = list(db.scalars(select(Read).where(Read.case_id == case.id).order_by(Read.id)))
     mine = next((r for r in reads if r.reader_id == user.id), None)
     is_lead_task = case.status == "disagreement" and user.role == "lead_cardiologist" and not (mine and mine.kind == "independent")

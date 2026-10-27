@@ -56,7 +56,16 @@ def _new_id(prefix: str) -> str:
 
 
 # ------------------------------------------------------------------ label run
+class SequenceError(RuntimeError):
+    """A step was attempted out of order (e.g. a review before the automatic audit)."""
+
+
+AUDIT_REQUIRED = ("The automatic audit is a required step after automatic labelling and before any data scientist "
+                  "or cardiologist review.")
+
+
 def create_label_run(db: Session, data_dir, username: str, label_model_path: str | None = None) -> LabelRun:
+    """Automatic labelling, followed immediately by the required automatic audit (one step; it cannot be skipped)."""
     gov = governance.load(data_dir)
     model = json.loads(Path(label_model_path).read_text()) if label_model_path else json.loads(json.dumps(labeling.DEFAULT_LABEL_MODEL))
     model["thresholds"] = gov["label_thresholds"]
@@ -92,16 +101,21 @@ def create_label_run(db: Session, data_dir, username: str, label_model_path: str
                "governance_sha": run.governance_sha, "n_candidates": len(labels)})
     db.commit()
     RunData.cache_clear()
+    run_audit(db, data_dir, run, username)   # required step: every label run is audited before anyone reviews it
     return run
 
 
 def run_audit(db: Session, data_dir, run: LabelRun, username: str) -> AuditReport:
+    if inputs_sha(data_dir) != run.inputs_sha:
+        raise SequenceError(f"The extracted data changed after label run {run.id} was created, so its labels no longer match "
+                            "the data. Run automatic labelling again (python -m curation.pipeline label); it audits the new run.")
     gov = governance.load(data_dir)
     raw = load_raw(data_dir)
     labels = pd.read_parquet(Path(run.path) / "labels.parquet")
     counts = {k: int(len(raw[k])) for k in ["evidence_labs", "evidence_procedures", "event_notes"]}
     rep = audit_mod.run_audit(raw["features"], labels, counts, raw["baseline_imaging_notes"], gov)
     rep["label_run_id"] = run.id
+    rep["inputs_sha"] = run.inputs_sha
     blob = json.dumps(rep, sort_keys=True, default=str)
     rid = _new_id("AU")
     ar = AuditReport(id=rid, label_run_id=run.id, overall=rep["overall"], sha=hashlib.sha256(blob.encode()).hexdigest(),
@@ -116,6 +130,27 @@ def run_audit(db: Session, data_dir, run: LabelRun, username: str) -> AuditRepor
 
 def latest_audit(db: Session, run_id: str) -> AuditReport | None:
     return db.scalar(select(AuditReport).where(AuditReport.label_run_id == run_id).order_by(AuditReport.created_at.desc()).limit(1))
+
+
+def audit_problem(db: Session, run: LabelRun, data_dir=None) -> str | None:
+    """Why this label run may not be reviewed yet (None = the required automatic audit is done and current).
+    With data_dir, also checks that the extracted data has not changed since labelling (hashes every raw file)."""
+    ar = latest_audit(db, run.id)
+    if ar is None:
+        return f"{AUDIT_REQUIRED} Label run {run.id} has no audit: run python -m curation.pipeline audit."
+    if ar.report.get("inputs_sha", run.inputs_sha) != run.inputs_sha:
+        return f"{AUDIT_REQUIRED} The audit {ar.id} was run on different data from label run {run.id}: run automatic labelling again."
+    if data_dir is not None and inputs_sha(data_dir) != run.inputs_sha:
+        return (f"{AUDIT_REQUIRED} The extracted data changed after label run {run.id} was labelled and audited: "
+                "run automatic labelling again (it audits the new run).")
+    return None
+
+
+def require_audit(db: Session, run: LabelRun, data_dir=None) -> AuditReport:
+    p = audit_problem(db, run, data_dir)
+    if p:
+        raise SequenceError(p)
+    return latest_audit(db, run.id)
 
 
 # ------------------------------------------------------------------ data cache

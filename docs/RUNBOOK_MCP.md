@@ -157,13 +157,15 @@ Each user is prompted for a password (12+ characters). Hand passwords over in pe
 ## Phase 5 — Automatic labelling, annotation and audit (≈1–3 h) · DS
 
 ```bash
-python -m curation.pipeline label        # candidate events → labelling functions → confirmed / uncertain / rejected + subtype
-python -m curation.pipeline audit        # 22 automatic data and label checks → pass / warn / fail
+python -m curation.pipeline label        # candidate events → labelling functions → confirmed / uncertain / rejected + subtype,
+                                         # then the required automatic audit (22 checks → pass / warn / fail)
 python -m curation.pipeline plan-workload # reads and hours per cardiologist for 2, 3 or 4 readers
 ```
+🔒 **The automatic audit is a required step.** It runs as part of `label` and cannot be skipped: the data scientist review (Phase 6), cardiologist adjudication (Phase 7) and the release sign-offs stay locked until the current label run has an audit. If the audit did not finish, run `python -m curation.pipeline audit`. If the extracted data changes after labelling, the audit is refused; run `label` again.
+
 The reports are in `data/label_runs/<LR-id>/`: `AUDIT_REPORT.md`, `lf_stats.json` and `labels.parquet`.
 
-⛔ **Stop if** the audit has failures you can't explain. Fix the extraction or code lists and **re-run `label` + `audit`**, which creates a new label run. Common causes are listed in [Appendix B](#appendix-b--troubleshooting).
+⛔ **Stop if** the audit has failures you can't explain. Fix the extraction or code lists and **re-run `label`**, which creates a new label run and audits it. Common causes are listed in [Appendix B](#appendix-b--troubleshooting).
 ✅ **Done when** the audit has 0 unexplained failures.
 
 ---

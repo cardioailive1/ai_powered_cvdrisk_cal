@@ -2,9 +2,11 @@
 
     python -m curation.pipeline init --data-dir data --provenance mayo-clinic-platform
     python -m curation.pipeline user-add jsmith --role cardiologist --full-name "J Smith"   (prompts for password)
-    python -m curation.pipeline label   --data-dir data          # 1. automatic labelling + annotation
-    python -m curation.pipeline audit   --data-dir data          # 2. automatic audit
-    python -m curation.server           --data-dir data          # 3-5. review, adjudication, sign-off in the workbench
+    python -m curation.pipeline label   --data-dir data          # 1. automatic labelling + annotation, then
+                                                                 # 2. the automatic audit (required; runs automatically)
+    python -m curation.pipeline audit   --data-dir data          #    (re-runs the audit for the current label run)
+    python -m curation.server           --data-dir data          # 3-5. DS review, adjudication, sign-off in the workbench
+                                                                 #      (blocked until the label run is audited)
     python -m curation.pipeline status  --data-dir data
     python -m curation.pipeline release --data-dir data --as dsmith   # 6. build the locked release (gates enforced)
     python -m training.train --release data/releases/<REL-id> --out bundles/<name>
@@ -95,12 +97,16 @@ def cmd_label(a):
     db = _db(a.data_dir)
     run = create_label_run(db, a.data_dir, _sysuser(), a.label_model)
     print(json.dumps({"label_run": run.id, **run.summary}, indent=2, default=str))
+    _print_audit(latest_audit(db, run.id))
 
 
 def cmd_audit(a):
     db = _db(a.data_dir)
-    ar = run_audit(db, a.data_dir, _run(db), _sysuser())
-    print(f"Audit {ar.id}: {ar.overall.upper()} {ar.report['counts']}")
+    _print_audit(run_audit(db, a.data_dir, _run(db), _sysuser()))
+
+
+def _print_audit(ar):
+    print(f"Automatic audit {ar.id}: {ar.overall.upper()} {ar.report['counts']}")
     for c in ar.report["checks"]:
         if c["status"] != "pass":
             print(f"  [{c['status'].upper():4}] {c['id']}: {c['title']} — {c['value']} ({c['detail']})")
