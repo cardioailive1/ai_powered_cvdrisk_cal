@@ -153,8 +153,8 @@ def setup(data_dir, trainer_dir, n: int = 20000, seed: int = 2026) -> dict:
     db = _db(d)
     log_event(db, TRAINER, "training.setup", str(d), {"n_patients": n, "seed": seed})
     db.commit()
-    run = create_label_run(db, d, TRAINER)
-    ar = run_audit(db, d, run, TRAINER)
+    run = create_label_run(db, d, TRAINER)       # also runs the required automatic audit
+    ar = latest_audit(db, run.id)
     return {"label_run": run.id, "audit": ar.overall, "patients": n}
 
 

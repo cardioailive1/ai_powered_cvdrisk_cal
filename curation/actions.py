@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from . import gates as gates_mod
 from . import governance
 from .adjudication import create_sample, metrics
-from .runs import get_run_data, latest_audit, load_raw
+from .runs import audit_problem, get_run_data, latest_audit, load_raw
 from .store import Approval, Case, LabelRun, Review, User, log_event
 
 
@@ -38,9 +38,9 @@ def current_gates(db: Session, data_dir, run: LabelRun) -> list[dict]:
 
 def review_audit_item(db: Session, run: LabelRun, user: User, check_id: str, action: str, justification: str) -> None:
     _need(user, "data_scientist")
+    if p := audit_problem(db, run):
+        raise ActionError(p)
     ar = latest_audit(db, run.id)
-    if not ar:
-        raise ActionError("No audit report for this label run")
     check = next((c for c in ar.report["checks"] if c["id"] == check_id), None)
     if not check:
         raise ActionError(f"Unknown audit check {check_id}")
@@ -75,11 +75,11 @@ def approve(db: Session, data_dir, run: LabelRun, user: User, stage: str, decisi
     if gates_mod.approval(db, run.id, stage):
         raise ActionError("This stage already has a decision for the current label run")
     result: dict = {}
+    if p := audit_problem(db, run, data_dir if stage == "ds_dataset_review" else None):
+        raise ActionError(p)   # no data scientist or cardiologist decision before the automatic audit
     if stage == "ds_dataset_review":
         _need(user, "data_scientist")
         ar = latest_audit(db, run.id)
-        if not ar:
-            raise ActionError("Run the automatic audit first")
         items = gates_mod.audit_items(db, run.id, ar.report)
         if decision == "approve" and any(not i["resolved"] for i in items):
             raise ActionError("Acknowledge every warning and waive or fix every failure before approving")

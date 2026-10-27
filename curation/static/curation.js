@@ -75,7 +75,7 @@
     const v = $("#view");
     v.innerHTML = `<div class="loading active"><div class="spinner"></div></div>`;
     try {
-      if (!STATUS.run && view !== "users" && view !== "log") return (v.innerHTML = `<div class="card empty">No label run yet. In the workspace run <span class="mono">python -m curation.pipeline label</span> then <span class="mono">audit</span>.</div>`);
+      if (!STATUS.run && view !== "users" && view !== "log") return (v.innerHTML = `<div class="card empty">No label run yet. In the workspace run <span class="mono">python -m curation.pipeline label</span> (automatic labelling, then the required automatic audit).</div>`);
       await ({ pipeline: viewPipeline, audit: viewAudit, queue: viewQueue, disagreements: viewDisagreements, case: viewCase,
          metrics: viewMetrics, log: viewLog, users: viewUsers }[view] || viewPipeline)(v, arg);
     } catch (ex) { v.innerHTML = `<div class="card empty">${esc(ex.message)}</div>`; }
@@ -97,7 +97,7 @@
     const auditOk = S.gates.find((g) => g.id === "audit")?.status === "pass";
     const dsReview = ap.ds_dataset_review
       ? `${chip(ap.ds_dataset_review.decision === "approve" ? "pass" : "fail")} ${esc(ap.ds_dataset_review.decision)} by <b>${esc(ap.ds_dataset_review.user)}</b> · ${esc(ap.ds_dataset_review.comment)}`
-      : isDS ? `<p class="muted">${auditOk ? "All audit items are resolved. Approving creates the adjudication sample and assigns readers." : "Resolve every audit item first (Audit review)."}</p>
+      : isDS ? `<p class="muted">${auditOk ? "All audit items are resolved. Approving creates the adjudication sample and assigns readers." : "The automatic audit must run and every audit item must be resolved first (Audit review)."}</p>
         <textarea id="dsr-comment" placeholder="Review notes: code sets checked, cohort definition, warnings considered…"></textarea>
         <div class="row-actions"><button class="btn-sm btn-ok" id="dsr-approve" ${auditOk ? "" : "disabled"}>Approve dataset → start adjudication</button>
         <button class="btn-sm btn-bad" id="dsr-reject">Reject — needs rework</button></div>`
@@ -125,9 +125,9 @@
       <div class="card"><h2><span class="stage-num">1</span>Automatic labelling &amp; annotation ${chip("pass")}</h2>
         <p class="muted">Diagnosis codes become candidate events. Labelling functions score the evidence (troponin kinetics, natriuretic peptides, imaging, resuscitation, report text with negation). Candidates after a patient's first auto-confirmed event cannot change a training label; the counts below are for label-relevant candidates.</p>
         <div class="tscroll"><table class="t"><thead><tr><th>Outcome</th><th class="num">Candidates</th><th class="num">After first event</th><th class="num">Label-relevant</th><th class="num">↳ Auto-confirmed</th><th class="num">↳ Uncertain</th><th class="num">↳ Auto-rejected</th><th class="num">Evidence-only</th></tr></thead><tbody>${famRows}</tbody></table></div></div>
-      <div class="card"><h2><span class="stage-num">2</span>Automatic audit ${S.audit ? chip(S.audit.overall) : chip("pending")}</h2>
+      <div class="card"><h2><span class="stage-num">2</span>Automatic audit <span class="muted">(required)</span> ${S.audit ? chip(S.audit.overall) : chip("pending")}</h2>
         ${S.audit ? `<div class="kv"><span><b>${S.audit.counts.pass}</b> pass</span><span><b>${S.audit.counts.warn}</b> warnings</span><span><b>${S.audit.counts.fail}</b> failures</span><span class="muted">${esc(S.audit.id)}</span></div>
-        <div class="row-actions"><a href="#/audit"><button class="btn-sm btn-secondary">Open audit review</button></a></div>` : `<p class="muted">Run <span class="mono">python -m curation.pipeline audit</span>.</p>`}</div>
+        <div class="row-actions"><a href="#/audit"><button class="btn-sm btn-secondary">Open audit review</button></a></div>` : `<p class="muted"><b>Required before any review.</b> Data scientist review and cardiologist adjudication stay locked until this label run is audited. Run <span class="mono">python -m curation.pipeline audit</span>.</p>`}</div>
       <div class="card"><h2><span class="stage-num">3</span>Data scientist review</h2>${dsReview}
         ${S.workload ? `<p class="muted" style="margin-top:.8rem">Expected adjudication load with ${S.workload.readers} cardiologist(s) + 1 lead (${S.workload.seats_needed}/${S.workload.seats_available} annotator seats):
           <b>${S.workload.event_cases.toLocaleString()}</b> event cases, ≈${S.workload.reads_per_reader.toLocaleString()} reads (${S.workload.hours_per_reader} h) per cardiologist, ≈${S.workload.expected_lead_reads} lead cases. ${esc(S.workload.assumptions)}.</p>` : ""}</div>
