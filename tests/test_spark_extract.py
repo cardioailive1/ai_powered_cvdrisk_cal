@@ -122,6 +122,10 @@ def test_candidates_evidence_and_notes(extracted):
     assert set(out["evidence_procedures"]["category"]) == set(raw["evidence_procedures"]["category"])
     notes = out["event_notes"]
     assert notes["note_id"].str.startswith("ECHO-").any()                  # echo notes came from FACT_ECHO_TEST
+    ecg = notes[notes["note_id"].str.startswith("ECG-")]                   # signed ECGs came from FACT_ECG
+    raw_ecg = raw["event_notes"][(raw["event_notes"]["note_title"] == "ECG report")
+                                 & ~raw["event_notes"]["person_id"].isin(INELIGIBLE)]
+    assert len(ecg) == len(raw_ecg) and (ecg["note_title"] == "ECG interpretation").all()   # one row per ECG, not per snippet
     assert notes["note_id"].is_unique
     cands = build_episodes(out["candidate_codes"], out["evidence_procedures"], out["features"])
     assert set(cands["family"]) == {"ami", "stroke", "hf", "scd", "af"}

@@ -257,7 +257,7 @@ def main():
     p.add_argument("--password", help="avoid on shared machines; prefer the prompt or $NEW_USER_PASSWORD")
     p.set_defaults(fn=cmd_user_add)
     p = sub.add_parser("label")
-    p.add_argument("--label-model", help="JSON label model (default: expert-v1)")
+    p.add_argument("--label-model", help="JSON label model (default: expert-v2)")
     p.set_defaults(fn=cmd_label)
     sub.add_parser("audit").set_defaults(fn=cmd_audit)
     sub.add_parser("status").set_defaults(fn=cmd_status)

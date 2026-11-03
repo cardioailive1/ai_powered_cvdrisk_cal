@@ -2,7 +2,7 @@
 
 Answers the open setup questions from the data itself and writes data/preflight.json:
   * which OMOP tables exist in --cdm
-  * columns of DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS and FACT_MORTALITY_STATUS (to fill
+  * columns of DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS, FACT_MORTALITY_STATUS and FACT_ECG (to fill
     training/native_sources.json); which OMOP person column holds PATIENT_CLINIC_NUMBER; once configured, how many
     native rows join to OMOP person_id, and whether any clinic number is split over two person_ids (train/test leak)
   * PRIMARY_DIAGNOSIS_FLAG values in FACT_DIAGNOSIS; deaths by year in FACT_MORTALITY_STATUS
@@ -54,7 +54,7 @@ def native_preflight(spark, cdm: str, native: str, cfg: dict) -> dict:
     rep: dict = {}
     link = cfg["patient_link"]
     dim = f"{native}.{link['table']}"
-    tables = {src: f"{native}.{cfg[src]['table']}" for src in ("echo", "diagnosis", "mortality")}
+    tables = {src: f"{native}.{cfg[src]['table']}" for src in ("echo", "diagnosis", "mortality", "ecg")}
     rep["native_tables"] = {link["table"]: _table(spark, dim), **{cfg[s]["table"]: _table(spark, t) for s, t in tables.items()}}
     rep["native_unconfirmed"] = unconfirmed(cfg)
     # backwards-compatible keys
@@ -108,7 +108,8 @@ def native_preflight(spark, cdm: str, native: str, cfg: dict) -> dict:
         r["match_rate"] = round(r["matched_to_omop"] / max(r["rows"], 1), 4)
         return r
 
-    for src, key in (("echo", "echo_person_bridge"), ("diagnosis", "diagnosis_person_link"), ("mortality", "mortality_person_link")):
+    for src, key in (("echo", "echo_person_bridge"), ("diagnosis", "diagnosis_person_link"), ("mortality", "mortality_person_link"),
+                     ("ecg", "ecg_person_link")):
         r = match(src)
         if r is not None:
             rep[key] = r

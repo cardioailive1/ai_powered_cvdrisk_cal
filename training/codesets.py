@@ -166,6 +166,21 @@ NATIVE_SOURCES = {
         "primary_value": "CONFIRM:value of PRIMARY_DIAGNOSIS_FLAG meaning primary (e.g. Y)",
         "encounter_column": "ENCOUNTER_NUMBER",                       # confirmed (links to FACT_ENCOUNTERS)
     },
+    # Signed ECG interpretations (MCP ECG data deck, Nov 2026): the cart drafts codes and text in MUSE, a
+    # cardiologist (not a fellow) confirms or edits and signs, then the validated result reaches the platform.
+    # FACT_ECG has one row per interpretation snippet (ECG_INTERPRET_SEQ_NBR); ECG_INTERPRET_FULL_TEXT is the whole
+    # signed narrative and ECG_INTERPRET_EXTENSION_TEXT the physician's free-text comments. Keyed by PATIENT_DK
+    # (-> DIM_PATIENT); ECG_DTM = bedside acquisition time (not DATA_AVAILABLE_DTM, which is filing time).
+    # Used as AF adjudication evidence: the AF definition requires ECG-documented AF.
+    "ecg": {
+        "table": "FACT_ECG",                                          # confirmed (ECG deck)
+        "patient_column": "PATIENT_DK",                               # confirmed: FACT_ECG -> DIM_PATIENT
+        "date_column": "ECG_DTM",                                     # confirmed: clinical ECG time
+        "id_column": "ECG_FPK",                                       # confirmed: one ECG record
+        "text_column": "ECG_INTERPRET_FULL_TEXT",                     # confirmed: signed narrative
+        "extension_column": "ECG_INTERPRET_EXTENSION_TEXT",           # confirmed: physician comments
+        "title": "ECG interpretation",
+    },
     "mortality": {
         "table": "FACT_MORTALITY_STATUS",                             # confirmed 21 Oct 2026
         "patient_column": "CONFIRM:patient key column in FACT_MORTALITY_STATUS (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
