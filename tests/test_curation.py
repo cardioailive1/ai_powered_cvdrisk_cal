@@ -237,3 +237,30 @@ def test_external_mortality_rules():
     assert removed == 1 and list(out["person_id"]) == [2, 3]               # E4 from the third-party death source
     assert out.loc[out.person_id == 2, "obs_end"].iloc[0] == pd.Timestamp("2019-03-01")   # last live interaction extends
     assert out.loc[out.person_id == 3, "death_date"].iloc[0] == pd.Timestamp("2017-06-01")  # earliest death wins
+
+
+def test_ecg_af_vote_from_signed_ecg():
+    """AF documented on a signed ECG is its own AF vote; it does not also count as a clinical-note vote, an ECG
+    without AF (paroxysmal AF) does not vote against, and FACT_ECG text does not change the other families."""
+    from training.labeling import LF_BY_NAME, Evidence, candidate_context
+    d = pd.Timestamp("2017-03-01")
+    notes = pd.DataFrame({"person_id": [1, 1, 2], "note_id": ["ECG-1", "N1", "ECG-2"], "note_date": [d, d, d],
+                          "note_title": ["ECG interpretation", "Progress note", "ECG interpretation"],
+                          "note_text": ["Atrial fibrillation with rapid ventricular response. Acute anterior infarct.",
+                                        "Palpitations, follow up.", "Normal sinus rhythm. No atrial fibrillation."]})
+    empty_l = pd.DataFrame(columns=["person_id", "analyte", "measured_at", "value", "unit", "range_high"])
+    empty_p = pd.DataFrame(columns=["person_id", "category", "procedure_date", "code"])
+    ev = Evidence(empty_l, empty_p, notes, {1: "male", 2: "male"})
+    row = lambda pid, fam: {"person_id": pid, "family": fam, "event_date": d, "days_from_index": 400}  # noqa: E731
+    af1, af2 = candidate_context(row(1, "af"), ev, {}), candidate_context(row(2, "af"), ev, {})
+    assert LF_BY_NAME["ecg_af"].fn(af1) == 1 and LF_BY_NAME["note_af"].fn(af1) == 0
+    assert LF_BY_NAME["ecg_af"].fn(af2) == 0 and LF_BY_NAME["note_af"].fn(af2) == 0
+    assert LF_BY_NAME["note_mi"].fn(candidate_context(row(1, "ami"), ev, {})) == 0     # ECG text is AF-only evidence
+
+
+def test_ecg_native_sql():
+    from training.extract import load_native_config, render_native_sql
+    cfg = load_native_config("/nonexistent.json")
+    sql = render_native_sql("p.native", "p.omop", cfg)["14_ecg_event"]
+    assert "p.native.FACT_ECG" in sql and "ECG_INTERPRET_FULL_TEXT" in sql and "GROUP BY t.person_id, x.ECG_FPK" in sql
+    assert "p.native.DIM_PATIENT" in sql and "ECG_DTM" in sql

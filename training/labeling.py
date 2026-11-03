@@ -25,6 +25,7 @@ import copy
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -39,6 +40,9 @@ EPISODE_GAP_DAYS = 7
 EVIDENCE_WINDOW = {"ami": (-1, 3), "stroke": (-1, 3), "hf": (-2, 3), "scd": (-1, 1), "af": (-30, 30)}
 NOTE_WINDOW = {"ami": (-1, 7), "stroke": (-1, 7), "hf": (-2, 7), "scd": (-1, 7), "af": (-3, 30)}
 LVEF_WINDOW = (-7, 30)
+# ECG interpretations: the signed FACT_ECG narrative (extract.py 14_ecg_event, title "ECG interpretation") or an
+# ECG report in OMOP note. The AF definition requires ECG-documented AF, so AF on an ECG is its own vote.
+ECG_TITLE = re.compile(r"(?i)\b(ecg|ekg|electrocardiogra)")
 MENTION_KEYS = {
     "ami": ["ami", "nstemi", "stemi", "type2_mi"],
     "stroke": ["stroke", "stroke_ischemic_img", "stroke_hem_img", "no_acute_intracranial"],
@@ -270,12 +274,14 @@ LFS: list[LF] = [
     LF("note_af", ("af",), "AF/flutter affirmed (+) / negated or only 'evaluate for' (−)",
        lambda c: 1 if _m(c, "af") else (-1 if _m(c, "af", "negated") or _m(c, "af", "hypothetical") else 0)),
     LF("cardioversion", ("af",), "Cardioversion performed", lambda c: 1 if _has_proc(c, "cardioversion") else 0),
+    LF("ecg_af", ("af",), "AF/flutter documented on a signed ECG interpretation in the window",
+       lambda c: 1 if any(c["ecg_mentions"].get(k, {}).get("affirmed", 0) for k in ("af", "flutter")) else 0),
 ]
 LF_BY_NAME = {lf.name: lf for lf in LFS}
 
 # log-odds weights: [weight when vote=+1, weight when vote=-1 (subtracted)]
 DEFAULT_LABEL_MODEL: dict = {
-    "version": "expert-v1",
+    "version": "expert-v2",      # v2: ecg_af (signed ECG interpretation) added to AF
     "thresholds": {"confirm": 0.8, "reject": 0.2},
     "families": {
         "ami": {"bias": -1.0, "lfs": {"acute_visit": [1.0, 1.5], "primary_dx": [0.8, 0], "no_dx_code": [0, 0.5],
@@ -289,7 +295,7 @@ DEFAULT_LABEL_MODEL: dict = {
         "scd": {"bias": -1.0, "lfs": {"acute_visit": [1.0, 1.0], "primary_dx": [0.8, 0], "no_dx_code": [0, 0.5],
                 "resuscitation": [2.5, 0], "note_arrest": [1.5, 1.5], "note_nsvt": [0, 2.5], "died_within_1d": [1.0, 0]}},
         "af": {"bias": 0.0, "lfs": {"no_dx_code": [0, 0.5], "repeat_af_codes": [1.5, 0.5], "note_af": [2.0, 1.5],
-               "cardioversion": [1.0, 0]}},
+               "cardioversion": [1.0, 0], "ecg_af": [2.0, 0]}},
     },
 }
 
@@ -407,7 +413,11 @@ def candidate_context(row: dict, ev: Evidence, feats_row: dict) -> dict:
     labs = ev.labs_for(pid, d, EVIDENCE_WINDOW[fam])
     procs = ev.procs_for(pid, d, EVIDENCE_WINDOW[fam])
     notes = ev.notes_for(pid, d, NOTE_WINDOW[fam])
-    texts = [n["note_text"] for n in notes]
+    is_ecg = [bool(ECG_TITLE.search(str(n.get("note_title") or ""))) for n in notes]
+    if fam == "af":      # AF on an ECG counts once, through ecg_af; note_af reads the clinical notes
+        texts = [n["note_text"] for n, g in zip(notes, is_ecg) if not g]
+    else:                # signed FACT_ECG text is AF evidence only: AMI/stroke/HF/SCD votes are unchanged by it
+        texts = [n["note_text"] for n in notes if n.get("note_title") != cs.NATIVE_SOURCES["ecg"]["title"]]
     age = float(feats_row.get("age", 60)) + row.get("days_from_index", 0) / 365.25
     lvef = None
     if fam == "hf":
@@ -416,7 +426,9 @@ def candidate_context(row: dict, ev: Evidence, feats_row: dict) -> dict:
         lvef = vals[0] if vals else None
     dd = feats_row.get("death_days")
     death_gap = None if dd is None or (isinstance(dd, float) and math.isnan(dd)) else dd - row.get("days_from_index", 0)
+    ecg_texts = [n["note_text"] for n, g in zip(notes, is_ecg) if g]
     return {**row, "labs": labs, "procs": procs, "mentions": summarize(texts, MENTION_KEYS[fam]),
+            "ecg_mentions": summarize(ecg_texts, ["af", "flutter"]) if fam == "af" else {},
             "trop": troponin_summary(labs) if fam == "ami" else None,
             "np": np_summary(labs, age) if fam == "hf" else None, "lvef": lvef, "death_gap": death_gap}
 

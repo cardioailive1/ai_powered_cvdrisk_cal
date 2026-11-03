@@ -1,4 +1,4 @@
-"""Build mock OMOP CDM tables (+ mock Mayo native tables DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS, FACT_MORTALITY_STATUS) from the synthetic raw dataset,
+"""Build mock OMOP CDM tables (+ mock Mayo native tables DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS, FACT_MORTALITY_STATUS, FACT_ECG) from the synthetic raw dataset,
 so the Spark SQL extraction can be tested end to end without patient data."""
 from __future__ import annotations
 
@@ -109,7 +109,8 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
 
     ev = raw["event_notes"]
     is_echo = ev["note_title"] == "Echocardiogram report"
-    notes = pd.concat([ev[~is_echo], raw["baseline_imaging_notes"].assign(note_title="Imaging report")], ignore_index=True)
+    is_ecg = ev["note_title"] == "ECG report"          # signed ECGs live in FACT_ECG, not OMOP note
+    notes = pd.concat([ev[~is_echo & ~is_ecg], raw["baseline_imaging_notes"].assign(note_title="Imaging report")], ignore_index=True)
     note = pd.DataFrame({"note_id": notes["note_id"].astype("int64"), "person_id": notes["person_id"],
                          "note_date": pd.to_datetime(notes["note_date"]).dt.date, "note_title": notes["note_title"], "note_text": notes["note_text"]})
     echo = ev[is_echo]
@@ -122,6 +123,15 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     dk = lambda p: p.astype("int64") * 10 + (p.astype("int64") % 2 == 0)  # noqa: E731  (second-system key for even ids)
     fact_echo = pd.DataFrame({"ECHO_ID": echo["note_id"].astype(str), "PATIENT_DK": dk(echo["person_id"]),
                               "ECHO_DTM": pd.to_datetime(echo["note_date"]) + pd.Timedelta(hours=10), "ECHO_NOTE": echo["note_text"]})
+    # FACT_ECG: one row per interpretation snippet (ECG_INTERPRET_SEQ_NBR), each repeating the signed full text
+    ecg = ev[is_ecg].reset_index(drop=True)
+    snip = ecg.loc[ecg.index.repeat(3)].reset_index()
+    fact_ecg = pd.DataFrame({"ECG_FPK": (snip["index"] + 900000).astype("int64"), "PATIENT_DK": dk(snip["person_id"]),
+                             "ECG_DTM": pd.to_datetime(snip["note_date"]) + pd.Timedelta(hours=8),
+                             "ECG_INTERPRET_SEQ_NBR": snip.groupby("index").cumcount() + 1,
+                             "ECG_INTERPRET_TEXT": snip.groupby("index").cumcount().map({0: "Atrial fibrillation", 1: "Abnormal ECG", 2: ""}),
+                             "ECG_INTERPRET_FULL_TEXT": snip["note_text"],
+                             "ECG_INTERPRET_EXTENSION_TEXT": np.where(snip["index"] % 4 == 0, "Compared with prior tracing.", "")})
     cc = raw["candidate_codes"]
     fact_dx = pd.DataFrame({"PATIENT_DK": cc["person_id"].astype("int64") * 10,
                             "DIAGNOSIS_DTM": pd.to_datetime(cc["event_date"]) + pd.Timedelta(hours=9),
@@ -137,4 +147,5 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
             "measurement": pd.DataFrame(meas), "condition_occurrence": pd.DataFrame(cond), "observation": empty_obs,
             "drug_exposure": pd.DataFrame(drugs), "concept_ancestor": pd.DataFrame(anc),
             "procedure_occurrence": pd.DataFrame(procs), "note": note, "concept": pd.DataFrame(C.rows),
-            "FACT_ECHO_TEST": fact_echo, "DIM_PATIENT": dim, "FACT_DIAGNOSIS": fact_dx, "FACT_MORTALITY_STATUS": mort}
+            "FACT_ECHO_TEST": fact_echo, "DIM_PATIENT": dim, "FACT_DIAGNOSIS": fact_dx, "FACT_MORTALITY_STATUS": mort,
+            "FACT_ECG": fact_ecg}

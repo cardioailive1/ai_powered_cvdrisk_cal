@@ -18,7 +18,8 @@ Writes to --out:
     baseline_imaging_notes.parquet  pre-index imaging/echo reports (CAC, LVEF annotation)
 
 Note sources: OMOP `note` (includes radiology reports = FACT_RADIOLOGY.RADIOLOGY_REPORT). With --native-dataset,
-the Mayo Clinic Platform native tables add: echo notes (FACT_ECHO_TEST.ECHO_NOTE), the primary-diagnosis flag
+the Mayo Clinic Platform native tables add: echo notes (FACT_ECHO_TEST.ECHO_NOTE), signed ECG interpretations
+(FACT_ECG.ECG_INTERPRET_FULL_TEXT, AF evidence), the primary-diagnosis flag
 (FACT_DIAGNOSIS.PRIMARY_DIAGNOSIS_FLAG) and deaths + last live interaction (FACT_MORTALITY_STATUS), all linked to
 OMOP person through PATIENT_CLINIC_NUMBER (DIM_PATIENT).
 Columns not yet confirmed by Mayo Clinic Platform are "CONFIRM:" placeholders (training/codesets.py);
@@ -298,7 +299,7 @@ WHERE lower(n.note_text) RLIKE {_lit(cs.NOTE_PREFILTER)}
 
 # ------------------------------------------------- native (non-OMOP) tables ----
 NATIVE_CONFIG = Path(__file__).parent / "native_sources.json"
-NATIVE_SOURCE_NAMES = ("patient_link", "echo", "diagnosis", "mortality")
+NATIVE_SOURCE_NAMES = ("patient_link", "echo", "diagnosis", "mortality", "ecg")
 
 
 def load_native_config(path: str | Path | None = None) -> dict:
@@ -356,6 +357,10 @@ JOIN {cdm}.person p ON p.person_id = {{pid}}
 WHERE x.{txt} IS NOT NULL"""
     d = cfg["diagnosis"]
     m = cfg["mortality"]
+    g = cfg["ecg"]
+    gid, gdt, gtx = _col(g["id_column"]), _col(g["date_column"]), _col(g["text_column"])
+    gext = _col(g["extension_column"]) if g.get("extension_column") else None
+    gtext = (f"concat_ws(' ', max(x.{gtx}), max(x.{gext}))" if gext else f"max(x.{gtx})")
     return {
         "10_echo_notes_baseline": "-- Pre-index echo reports (LVEF annotation) from the native FACT_ECHO_TEST table\n"
         + base.format(who="co.person_id", src="cvd_cohort co", pid="co.person_id")
@@ -373,6 +378,22 @@ JOIN {cdm}.person p ON p.person_id = cc.person_id
 WHERE upper(cast(x.{_col(d['primary_flag_column'])} AS STRING)) = upper({_val(d['primary_value'])})
   AND to_date(x.{_col(d['date_column'])}) BETWEEN date_sub(cc.event_date, 1) AND date_add(cc.event_date, 1)
   AND regexp_replace(upper(cast(x.{_col(d['code_column'])} AS STRING)), '[.]', '') = regexp_replace(upper(cc.code), '[.]', '')
+""",
+        "14_ecg_event": f"""-- Signed ECG interpretations around candidate events (-3 to +30 days), one row per ECG ({g['id_column']}):
+-- {g['table']} stores one row per interpretation snippet, each repeating the full narrative (MCP ECG deck).
+WITH triggers AS (
+  SELECT DISTINCT person_id, event_date AS d FROM cvd_candidate_codes
+  UNION
+  SELECT DISTINCT person_id, procedure_date AS d FROM cvd_evidence_procedures
+)
+SELECT t.person_id, concat('ECG-', cast(x.{gid} AS STRING)) AS note_id, to_date(min(x.{gdt})) AS note_date,
+       '{g['title']}' AS note_title, {gtext} AS note_text
+FROM triggers t
+JOIN {cdm}.person p ON p.person_id = t.person_id
+{native_join(native, cfg, "ecg")}
+WHERE x.{gtx} IS NOT NULL
+  AND to_date(x.{gdt}) BETWEEN date_sub(t.d, 3) AND date_add(t.d, 30)
+GROUP BY t.person_id, x.{gid}
 """,
         "13_mortality": f"""-- Death date (Mayo record + third-party death data) and last live interaction from FACT_MORTALITY_STATUS
 SELECT co.person_id, MIN(to_date(x.{_col(m['death_date_column'])})) AS death_date_ext,
@@ -582,7 +603,7 @@ def run_extract(spark, a) -> Path:
     keep(q("08_evidence_labs")).to_parquet(out / "evidence_labs.parquet", index=False)
     notes = q("09_event_notes")
     if a.native_dataset:
-        notes = merge_notes(notes, q("11_echo_notes_event"))
+        notes = merge_notes(notes, q("11_echo_notes_event"), q("14_ecg_event"))
     notes = keep(notes)
     notes["note_id"] = notes["note_id"].astype(str)
     notes.to_parquet(out / "event_notes.parquet", index=False)
