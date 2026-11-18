@@ -18,43 +18,16 @@ from training.labeling import build_episodes  # noqa: E402
 from training.synthetic_raw import generate_raw  # noqa: E402
 
 
-NATIVE = {"patient_link": {"omop_person_column": "person_source_value"},
-          "echo": {"patient_column": "PATIENT_DK", "date_column": "ECHO_DTM", "id_column": "ECHO_ID"},
-          "diagnosis": {"patient_column": "PATIENT_DK", "date_column": "DIAGNOSIS_DTM", "code_column": "DIAGNOSIS_CODE",
-                        "primary_value": "Y"},
-          "mortality": {"patient_column": "PATIENT_DK", "death_date_column": "DEATH_DTM"}}
-INELIGIBLE = {}   # person_id -> reason, filled by the fixture
-LATE_DEATH = {}   # person_id -> days: third-party death long after last contact (censored, not a follow-up death)
-
-
-def _make_ineligible(raw, omop):
-    """Turn four synthetic patients into people the eligibility criteria must remove."""
-    F = raw["features"].set_index("person_id")
-    pids = list(F.index[:4])
-    person, death = omop["person"], omop["death"]
-    idx = pd.to_datetime(F.loc[pids, "index_date"])
-    for pid, years in ((pids[0], 15), (pids[1], 92)):          # E1 pediatric, E2 age 90+
-        dob = idx[pid] - pd.Timedelta(days=int(years * 365.25 + 30))
-        person.loc[person.person_id == pid, ["year_of_birth", "month_of_birth", "day_of_birth"]] = [dob.year, dob.month, dob.day]
-    person.loc[person.person_id == pids[2], "gender_concept_id"] = 0                     # E3 sex not recorded
-    death = death[death.person_id != pids[3]]
-    omop["death"] = pd.concat([death, pd.DataFrame({"person_id": [pids[3]], "death_date": [(idx[pids[3]] - pd.Timedelta(days=10)).date()]})])
-    # E4 from the third-party death source only (FACT_MORTALITY_STATUS), and a death 3 years after last contact
-    alive = [p for p in F.index[4:] if pd.isna(F.loc[p, "death_days"])][:2]
-    mort = omop["FACT_MORTALITY_STATUS"]
-    p4, p5 = alive
-    mort.loc[mort.PATIENT_DK == p4 * 10, "DEATH_DTM"] = pd.Timestamp(F.loc[p4, "index_date"]) - pd.Timedelta(days=30)
-    late = float(F.loc[p5, "followup_days"]) + 3 * 365
-    mort.loc[mort.PATIENT_DK == p5 * 10, "DEATH_DTM"] = pd.Timestamp(F.loc[p5, "index_date"]) + pd.Timedelta(days=late)
-    INELIGIBLE.update({pids[0]: "pediatric", pids[1]: "age_90_plus", pids[2]: "sex", pids[3]: "died_before_index",
-                       p4: "died_before_index_external"})
-    LATE_DEATH[p5] = late
-    return omop
+from omop_mock import INELIGIBLE, LATE_DEATH, NATIVE  # noqa: E402,F401  (shared with test_bq_engine)
+from omop_mock import make_ineligible as _make_ineligible  # noqa: E402
 
 
 @pytest.fixture(scope="module")
 def extracted(tmp_path_factory):
-    d = tmp_path_factory.mktemp("spark")
+    return run_spark_extract(tmp_path_factory.mktemp("spark"))
+
+
+def run_spark_extract(d):
     raw = generate_raw(n=400, seed=9)
     spark = (pyspark.SparkSession.builder.master("local[2]").appName("cardioai-test")
              .config("spark.ui.enabled", "false").config("spark.sql.shuffle.partitions", "4").getOrCreate())

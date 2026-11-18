@@ -22,7 +22,7 @@ import logging
 from pathlib import Path
 
 from . import codesets as cs
-from .extract import _lit, get_spark, load_native_config, unconfirmed
+from .extract import _lit, load_native_config, session, unconfirmed
 
 log = logging.getLogger("cardioai.preflight")
 OMOP_TABLES = ["person", "observation_period", "visit_occurrence", "condition_occurrence", "observation", "measurement",
@@ -161,13 +161,17 @@ def run_preflight(spark, cdm: str, native: str | None, native_config: str | None
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cdm", required=True)
+    ap.add_argument("--engine", choices=["spark", "bigquery"], default="spark")
+    ap.add_argument("--cdm", required=True, help="Spark catalog.schema, or BigQuery project.dataset")
     ap.add_argument("--native-dataset")
     ap.add_argument("--native-config")
     ap.add_argument("--out", default="data/preflight.json")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    rep = run_preflight(get_spark(), a.cdm, a.native_dataset, a.native_config)
+    real = {"cdm": a.cdm, "native": a.native_dataset}
+    eng, a = session(a)
+    rep = run_preflight(eng, a.cdm, a.native_dataset, a.native_config)
+    rep.update(real)
     Path(a.out).parent.mkdir(parents=True, exist_ok=True)
     Path(a.out).write_text(json.dumps(rep, indent=2, default=str))
     print(json.dumps(rep, indent=2, default=str))

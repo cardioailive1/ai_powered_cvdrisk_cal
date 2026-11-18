@@ -2,7 +2,8 @@
 -r requirements-training.txt
 pytest>=8
 httpx2>=2.13         # required by fastapi/starlette TestClient
-pyspark==4.0.1       # Spark SQL round-trip tests (needs Java 17+; pyspark 3.5 breaks on Python 3.12); the Mayo workspace provides its own Spark
+pyspark==4.0.1       # Spark SQL round-trip tests (needs Java 17+; pyspark 3.5 breaks on Python 3.12)
+duckdb>=1.1          # stands in for BigQuery in tests/test_bq_engine.py
 simple-icd-10-cm==1.5.0  # official ICD-10-CM (April 2026) to check training/code_lists/candidate_codes.csv
 icd9cms==0.2.1           # official ICD-9-CM v32 descriptions, same check
 openpyxl>=3.1              # icd9cms ships the CMS ICD-9-CM v32 descriptions as .xlsx
