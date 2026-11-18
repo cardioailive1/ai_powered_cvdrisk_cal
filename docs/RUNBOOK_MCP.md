@@ -33,20 +33,20 @@ Each phase ends with a **✅ Done when** checkpoint and lists **⛔ Stop if** co
 
 ## Phase 1 — Set up the workspace environment (≈½ day) · DS
 
-**1.1 Get the code into the workspace.** If the workspace can reach GitHub:
+**1.1 Get the code into the workspace.** The workspace cannot reach github.com; the repository is mirrored in the workspace **Gitea**. Copy the HTTPS clone address from the repo page in Gitea, then in a JupyterLab **Terminal**:
 ```bash
-git clone https://github.com/cardioailive1/ai_powered_cvdrisk_cal.git
+git clone <Gitea HTTPS address of ai_powered_cvdrisk_cal>
 cd ai_powered_cvdrisk_cal
 git checkout <release-tag-or-commit>        # always run a pinned, reviewed commit
 ```
-Otherwise download the repository ZIP from GitHub on your laptop, upload it through the workspace file browser, and unzip it.
+If the commit is missing, the Gitea mirror is behind GitHub: sync it (repo **Settings → Mirror settings → Synchronize now**) or ask the TSM. In a notebook, prefix shell commands with `!` and use `%cd` to change folder.
 
-**1.2 Python environment.** pip installs are allowed, and pyspark comes from the workspace Spark runtime.
+**1.2 Python environment.** pip installs are allowed. On MCP the OMOP data is in **BigQuery**, so the extraction uses `--engine bigquery` (no Spark needed).
 ```bash
-python -m venv .venv && source .venv/bin/activate      # or use the workspace's default kernel
 pip install -r requirements-training.txt pytest
-python -c "from pyspark.sql import SparkSession; print(SparkSession.builder.getOrCreate().version)"
+python -c "from google.cloud import bigquery; c = bigquery.Client(); print(c.project, [d.dataset_id for d in c.list_datasets()])"
 ```
+Expect your project id (`mcp-acc-…`) and its writable dataset `temp_tables`.
 **1.3 Self-test on synthetic data.** This touches no patient data.
 ```bash
 pytest -q                                   # expect: all tests pass (Spark tests run if pyspark is present)
@@ -56,26 +56,30 @@ pytest -q                                   # expect: all tests pass (Spark test
 mkdir -p data && echo "data/" >> .git/info/exclude
 ```
 
-⛔ **Stop if** tests fail or Spark does not start. Send the error to MCP; don't continue on a broken environment.
+⛔ **Stop if** tests fail or BigQuery does not connect (or, on a Spark workspace, Spark does not start). Send the error to MCP; don't continue on a broken environment.
 ✅ **Done when** `pytest -q` passes in the workspace.
 
 ---
 
 ## Phase 2 — Locate the data and confirm settings (≈1 day) · DS (+ MCP)
 
-**2.1 Find the schemas.** In a notebook cell:
+**2.1 Find the dataset.** On MCP the OMOP CDM and the Mayo native tables are BigQuery views in **one** read-only dataset in the data project (Mayo's examples: `BQClient('mcp-ss-data-p-5o6i.vw_accelerate2605_core_v1')`, 193 tables including `person`, `note`, `DIM_PATIENT`, `FACT_ECG`, `FACT_ECHO_TEST`, `FACT_DIAGNOSIS`, `FACT_MORTALITY_STATUS`, `FACT_RADIOLOGY`). To list them (names only):
 ```python
-spark.sql("SHOW CATALOGS").show(); spark.sql("SHOW SCHEMAS").show(100, False)
-spark.sql("SHOW TABLES IN <catalog>.<schema>").show(200, False)
+from google.cloud import bigquery
+c = bigquery.Client()
+print(sorted(t.table_id for t in c.list_tables("mcp-ss-data-p-5o6i.vw_accelerate2605_core_v1")))
 ```
-Write down:
-- `OMOP=<catalog.schema>` holding `person`, `condition_occurrence`, `measurement`, `note`, …;
-- `NATIVE=<catalog.schema>` holding `DIM_PATIENT`, `FACT_RADIOLOGY`, `FACT_ECHO_TEST`, `FACT_DIAGNOSIS` and `FACT_MORTALITY_STATUS`.
+```bash
+export OMOP=mcp-ss-data-p-5o6i.vw_accelerate2605_core_v1
+export NATIVE=$OMOP          # native FACT_/DIM_ tables are in the same dataset
+```
+Intermediate tables (cohort, candidate codes, procedures) are written to your project's `temp_tables` dataset and expire after 7 days. Nothing leaves the workspace.
 
 **2.2 Run the preflight** (read-only; prints aggregate counts only):
 ```bash
-python -m training.preflight --cdm $OMOP --native-dataset $NATIVE --out data/preflight.json
+python -m training.preflight --engine bigquery --cdm $OMOP --native-dataset $NATIVE --out data/preflight.json
 ```
+(On a Spark workspace: drop `--engine bigquery` and use Spark `catalog.schema` names.)
 **2.3 Read `data/preflight.json` and set the configuration:**
 
 | Preflight section | Decide / set | Where |
@@ -104,18 +108,18 @@ Record the review in the commit message of any change.
 
 ---
 
-## Phase 3 — Extract the raw curation dataset (≈2–6 h of Spark time) · DS
+## Phase 3 — Extract the raw curation dataset (≈1–6 h) · DS
 
 **3.1 Review the SQL** (no data access):
 ```bash
 python -m training.extract --render-only --cdm $OMOP --native-dataset $NATIVE   # → training/sql/*.sql
 ```
-**3.2 Run the extraction** (Spark SQL; intermediate results are cached temp views, so no scratch schema is needed):
+**3.2 Run the extraction.** On MCP (BigQuery), the same queries are translated to BigQuery SQL (`training/bq_engine.py`); intermediate results go to `temp_tables`:
 ```bash
-python -m training.extract --cdm $OMOP --native-dataset $NATIVE \
+python -m training.extract --engine bigquery --cdm $OMOP --native-dataset $NATIVE \
        --index-start 2012-01-01 --index-end 2019-12-31 --out data/raw
 ```
-Give the Spark driver enough memory for `toPandas()` of the notes table: **≥ 32 GB** is recommended. The extraction refuses to run while any `CONFIRM:` setting remains.
+The rendered SQL in 3.1 is Spark SQL; the BigQuery version is produced from it at run time (`training/bq_engine.py`). On a Spark workspace, drop `--engine bigquery`; give the Spark driver **≥ 32 GB** for `toPandas()` of the notes table. The final extract files need a similar amount of notebook memory on BigQuery. The extraction refuses to run while any `CONFIRM:` setting remains.
 
 **3.3 Sanity-check row counts:**
 ```bash

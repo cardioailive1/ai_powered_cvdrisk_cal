@@ -613,7 +613,9 @@ def run_extract(spark, a) -> Path:
 
 def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--cdm", default="omop", help="Spark catalog.schema (or schema) holding the OMOP CDM tables")
+    ap.add_argument("--engine", choices=["spark", "bigquery"], default="spark",
+                    help="bigquery on Mayo Clinic Platform (OMOP and native tables are BigQuery views; see training/bq_engine.py)")
+    ap.add_argument("--cdm", default="omop", help="Spark catalog.schema, or BigQuery project.dataset, holding the OMOP CDM tables")
     ap.add_argument("--index-start", default=INDEX_WINDOW[0])
     ap.add_argument("--index-end", default=INDEX_WINDOW[1])
     ap.add_argument("--lookback-days", type=int, default=730)
@@ -641,7 +643,20 @@ def main(argv=None) -> None:
         if todo:
             log.warning("Native-table SQL (10_ to 13_) has unconfirmed columns:\n  " + "\n  ".join(todo))
         return
-    run_extract(get_spark(), a)
+    eng, a = session(a)
+    run_extract(eng, a)
+
+
+def session(a, backend=None):
+    """(engine, args): the workspace Spark session, or BigQuery (Mayo Clinic Platform) with dataset placeholders."""
+    if getattr(a, "engine", "spark") == "bigquery":
+        from .bq_engine import CDM_PLACEHOLDER, NATIVE_PLACEHOLDER, BigQueryEngine
+        eng = BigQueryEngine(a.cdm, a.native_dataset, backend=backend)
+        a.cdm = CDM_PLACEHOLDER
+        if a.native_dataset:
+            a.native_dataset = NATIVE_PLACEHOLDER
+        return eng, a
+    return get_spark(), a
 
 
 if __name__ == "__main__":
