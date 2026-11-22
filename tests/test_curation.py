@@ -203,10 +203,7 @@ def test_reader_policy(env):
 def test_echo_native_config_requires_confirmation():
     from training.extract import load_native_config, render_native_sql, unconfirmed
     cfg = load_native_config("/nonexistent.json")
-    # MCP's columns are confirmed (preflight, 22 Nov 2026); only the diagnosis-code lookup table is left
-    assert [u.split(":")[0] for u in unconfirmed(cfg)] == ["diagnosis.code_table", "diagnosis.code_column"]
-    assert not unconfirmed(cfg, ("echo", "mortality", "ecg", "patient_link"))
-    cfg["diagnosis"].update(code_table="DIM_DIAGNOSIS_CODE", code_column="DIAGNOSIS_CODE")
+    assert not unconfirmed(cfg)                       # every MCP column is confirmed (preflight, 22 Nov 2026)
     sql = render_native_sql("p.native", "p.omop", cfg)
     assert not unconfirmed(cfg) and not any("CONFIRM" in q for q in sql.values()) and "ECHO_NOTE" in sql["11_echo_notes_event"]
     assert "ECHO_PERFORMED_DTM" in sql["10_echo_notes_baseline"] and "p.native.DIM_PATIENT" in sql["10_echo_notes_baseline"]
