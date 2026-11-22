@@ -1,7 +1,7 @@
 {
-  "_comment": "MCP's columns are built in (training/codesets.py, confirmed by preflight 22 Nov 2026). Only the diagnosis-code lookup is left: copy this file to training/native_sources.json and set the table and column from the preflight's diagnosis_code_lookup_candidates.",
+  "_comment": "MCP's columns are built in (training/codesets.py, confirmed 22 Nov 2026); no native_sources.json is needed on MCP. To override a setting for another workspace, copy this file to training/native_sources.json and keep only what differs, e.g.:",
   "diagnosis": {
-    "code_table": "<lookup table holding the ICD code for DIAGNOSIS_CODE_DK, e.g. DIM_DIAGNOSIS_CODE>",
-    "code_column": "<ICD code column in that table>"
+    "code_table": "DIM_DIAGNOSIS_CODE",
+    "code_column": "DIAGNOSIS_CODE"
   }
 }

@@ -85,10 +85,10 @@ python -m training.preflight --engine bigquery --cdm $OMOP --native-dataset $NAT
 | Preflight section | Decide / set | Where |
 |---|---|---|
 | `omop_tables` | All `true`. Otherwise fix `--cdm`. | — |
-| `omop_person_column_candidates` | The OMOP `person` column with the highest match rate holds `PATIENT_CLINIC_NUMBER`, the person-level key across Mayo record systems (MCP, 21 Oct 2026). Expect ≈ 1.0. | `patient_link.omop_person_column` in `training/native_sources.json` (copy `native_sources.example.json`) |
+| `omop_person_column_candidates` | The OMOP `person` column with the highest match rate holds `PATIENT_CLINIC_NUMBER`, the person-level key across Mayo record systems (MCP, 21 Oct 2026). Expect ≈ 1.0. | Built in: `person_source_value` (100% match on MCP, 22 Nov 2026) |
 | `dim_patient` | `dks_with_several_clinic_numbers` and `clinic_numbers_with_several_unmerged_rows` should both be **0**. Rows with `PATIENT_MERGED_FLAG = 'N'` give one row per person. | — |
 | `native_tables` → columns of `FACT_ECHO_TEST`, `FACT_DIAGNOSIS`, `FACT_MORTALITY_STATUS`, `FACT_ECG` | Confirmed on MCP (22 Nov 2026) and built in: echo `PATIENT_DK` / `ECHO_PERFORMED_DTM` / `ECHO_TEST_FPK`; diagnosis `PATIENT_DK` / `DIAGNOSIS_DTM` / `PRIMARY_DIAGNOSIS_FLAG = 'Y'`; mortality `PATIENT_CLINIC_NUMBER` / `CONSENSUS_DEATH_DATE` where `CONSENSUS_STATUS = 'deceased'`; ECG as in the ECG deck. | Nothing to set |
-| `diagnosis_code_lookup_candidates` | `FACT_DIAGNOSIS` holds `DIAGNOSIS_CODE_DK`, not the ICD code. Pick the table that has `DIAGNOSIS_CODE_DK` and the ICD code column. Re-run the preflight: `diagnosis_code_lookup.with_code` should be close to `rows`, and `i21_rows` > 0. | `diagnosis.code_table` and `diagnosis.code_column` in `training/native_sources.json` (copy `native_sources.example.json`) |
+| `diagnosis_code_lookup`, `diagnosis_code_systems` | `FACT_DIAGNOSIS` holds `DIAGNOSIS_CODE_DK`; the ICD code comes from `DIM_DIAGNOSIS_CODE.DIAGNOSIS_CODE` (built in). Check `with_code` ≈ `rows` and `i21_rows` > 0, and note the code systems (ICD-9 / ICD-10 / other). | Nothing to set |
 | `primary_diagnosis_flag_values` | The value of `PRIMARY_DIAGNOSIS_FLAG` that means *primary* (e.g. `Y`). | `diagnosis.primary_value` |
 | (after setting the above) re-run → `echo_person_bridge`, `diagnosis_person_link`, `mortality_person_link` | Each `match_rate` should be **≥ 0.95**. `clinic_numbers_with_several_person_ids` must be **0**, or the same patient could land in both the training and test sets: stop and ask MCP. | — |
 | `mortality_by_year` | Deaths per year (Mayo record + third-party death data, Veritas). Cause of death is **not** populated. | — |
@@ -105,7 +105,7 @@ Record the review in the commit message of any change.
 **2.5 Set governance** (thresholds and definitions) in `data/governance.json` after `init` (Phase 4). Defaults: κ ≥ 0.6, PPV/NPV ≥ 85%, annotation accuracy ≥ 90%, indeterminate ≤ 15%, type 2 MI **excluded** from AMI, post-operative AF **excluded** from new-onset AF.
 
 ⛔ **Stop if** any native match rate is below 0.9, a clinic number maps to two OMOP person_ids, or the primary-diagnosis value can't be identified. Resolve with MCP first.
-✅ **Done when** `native_sources.json` is complete, the preflight match rate is acceptable, and the code lists are signed off by the CL.
+✅ **Done when** the preflight shows `native_unconfirmed: []`, the match rates are ≈ 1.0, death years are filled, and the code lists are signed off by the CL.
 
 ---
 

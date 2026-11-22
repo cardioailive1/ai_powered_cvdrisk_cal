@@ -141,6 +141,10 @@ def native_preflight(spark, cdm: str, native: str, cfg: dict) -> dict:
             if (v := _table(spark, f"{native}.{t}"))["exists"]}
     elif d.get("code_table"):
         code = f"dc.{d['code_column']}"
+        if d.get("code_system_column"):
+            rep["diagnosis_code_systems"] = _rows(spark, f"""
+                SELECT cast({d['code_system_column']} AS STRING) AS code_system, count(*) AS codes
+                FROM {native}.{d['code_table']} GROUP BY 1 ORDER BY codes DESC""", 20)
         rep["diagnosis_code_lookup"] = spark.sql(f"""
             SELECT count(*) AS rows, count({code}) AS with_code,
                    sum(CASE WHEN regexp_replace(upper(cast({code} AS STRING)), '[.]', '') LIKE 'I21%' THEN 1 ELSE 0 END) AS i21_rows
