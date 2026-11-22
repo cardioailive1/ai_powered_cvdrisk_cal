@@ -137,3 +137,32 @@ def test_dataset_names_validated():
     sql = to_bigquery("SELECT /*+ BROADCAST(c) */ xxhash64(concat(a, b)) FROM __CDM__.person JOIN cvd_cohort c ON 1=1",
                       {"__CDM__": "p-1.ds"}, {"cvd_cohort": "p-2.temp_tables.cvd_cohort"})
     assert "`p-1`.`ds`.`person`" in sql and "`p-2`.`temp_tables`.`cvd_cohort`" in sql and "FARM_FINGERPRINT" in sql
+
+
+def test_preflight_reports_real_errors(bq, monkeypatch):
+    """A missing package or a permission error is reported as such, not as 'missing OMOP tables'."""
+    from training import preflight
+    eng = BigQueryEngine(DATA, DATA, backend=bq["backend"])
+
+    def no_sqlglot(*a, **k):
+        raise ImportError("No module named 'sqlglot'")
+    monkeypatch.setattr(eng, "translate", no_sqlglot)
+    rep = preflight.run_preflight(eng, "__CDM__", "__NAT__", str(bq["cfg"]))
+    assert "package is missing" in rep["error"] and "sqlglot" in rep["error"]
+
+    class Denied(Exception):
+        pass
+
+    def denied(*a, **k):
+        raise Denied("403 Access Denied: User does not have bigquery.tables.getData permission")
+    monkeypatch.setattr(bq["backend"], "query", denied)
+    eng2 = BigQueryEngine(DATA, DATA, backend=bq["backend"])
+    rep = preflight.run_preflight(eng2, "__CDM__", "__NAT__", str(bq["cfg"]))
+    assert "Access Denied" in rep["error"] and "Missing OMOP" not in rep["error"]
+
+
+def test_preflight_missing_table_still_reported(bq):
+    from training import preflight
+    eng = BigQueryEngine("mcp-ss-data-p-test.no_such_dataset", DATA, backend=bq["backend"])
+    rep = preflight.run_preflight(eng, "__CDM__", "__NAT__", str(bq["cfg"]))
+    assert rep["error"].startswith("Missing OMOP tables")

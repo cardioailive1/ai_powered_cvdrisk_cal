@@ -33,17 +33,33 @@ def _rows(spark, q: str, limit: int = 50) -> list[dict]:
     return [r.asDict() for r in spark.sql(q).limit(limit).collect()]
 
 
+_NOT_FOUND = ("not found", "notfound", "table_or_view_not_found", "does not exist", "cannot be found",
+              "cannot resolve", "404")
+ERRORS: dict[str, str] = {}   # table -> first line of an error that was NOT "table not found"
+
+
 def _exists(spark, table: str) -> bool:
+    """True if the table can be read. A missing table returns False; any other failure (missing package, permission,
+    SQL translation) is raised, so it is reported instead of looking like a missing table."""
     try:
         spark.sql(f"SELECT 1 FROM {table} LIMIT 1").collect()
         return True
-    except Exception:
-        return False
+    except ImportError:
+        raise
+    except Exception as e:                                  # noqa: BLE001
+        msg = str(e)
+        if any(k in msg.lower() for k in _NOT_FOUND):
+            return False
+        ERRORS[table] = msg.splitlines()[0][:500] if msg else type(e).__name__
+        raise
 
 
 def _table(spark, tbl: str) -> dict:
-    if not _exists(spark, tbl):
-        return {"exists": False}
+    try:
+        if not _exists(spark, tbl):
+            return {"exists": False}
+    except Exception as e:                                  # noqa: BLE001  reported, not fatal, for native tables
+        return {"exists": False, "error": str(e).splitlines()[0][:500] if str(e) else type(e).__name__}
     return {"exists": True, "rows": spark.sql(f"SELECT count(*) AS n FROM {tbl}").collect()[0]["n"],
             "columns": [{"name": f.name, "type": f.dataType.simpleString()} for f in spark.table(tbl).schema.fields]}
 
@@ -129,7 +145,15 @@ def native_preflight(spark, cdm: str, native: str, cfg: dict) -> dict:
 
 def run_preflight(spark, cdm: str, native: str | None, native_config: str | None = None) -> dict:
     rep: dict = {"cdm": cdm, "native": native}
-    rep["omop_tables"] = {t: _exists(spark, f"{cdm}.{t}") for t in OMOP_TABLES}
+    try:
+        rep["omop_tables"] = {t: _exists(spark, f"{cdm}.{t}") for t in OMOP_TABLES}
+    except ImportError as e:
+        rep["error"] = (f"A required package is missing ({e}). Install them with: "
+                        "python -m pip install -r requirements-training.txt")
+        return rep
+    except Exception as e:                                  # noqa: BLE001
+        rep["error"] = f"Could not read the OMOP tables in {cdm}: {str(e).splitlines()[0][:500] if str(e) else type(e).__name__}"
+        return rep
     missing = [t for t, ok in rep["omop_tables"].items() if not ok]
     if missing:
         rep["error"] = f"Missing OMOP tables in {cdm}: {', '.join(missing)}"
