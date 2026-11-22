@@ -164,8 +164,9 @@ NATIVE_SOURCES = {
         # FACT_DIAGNOSIS holds no ICD code, only DIAGNOSIS_CODE_DK -> a lookup table that holds the code.
         # Set code_table to "" if a workspace's FACT_DIAGNOSIS carries the code itself in code_column.
         "code_key_column": "DIAGNOSIS_CODE_DK",                       # confirmed
-        "code_table": "CONFIRM:lookup table with the ICD code for DIAGNOSIS_CODE_DK (e.g. DIM_DIAGNOSIS_CODE)",
-        "code_column": "CONFIRM:ICD code column in that lookup table (with or without the dot)",
+        "code_table": "DIM_DIAGNOSIS_CODE",                           # confirmed: table list, 22 Nov 2026
+        "code_column": "DIAGNOSIS_CODE",                              # confirmed (dot ignored when matching)
+        "code_system_column": "DIAGNOSIS_METHOD_CODE",                # ICD-9 / ICD-10 etc.; values shown by the preflight
         "primary_flag_column": "PRIMARY_DIAGNOSIS_FLAG",              # confirmed
         "primary_value": "Y",                                         # confirmed: preflight values Y / N / null
         "encounter_column": "ENCOUNTER_NUMBER",                       # confirmed (links to FACT_ENCOUNTERS)

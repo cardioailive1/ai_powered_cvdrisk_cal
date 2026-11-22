@@ -138,7 +138,8 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     cc = raw["candidate_codes"]
     # FACT_DIAGNOSIS holds DIAGNOSIS_CODE_DK, not the code; the code is in a lookup table (as on MCP)
     codes = sorted(cc["code"].str.replace(".", "", regex=False).unique())
-    dx_lookup = pd.DataFrame({"DIAGNOSIS_CODE_DK": np.arange(7000, 7000 + len(codes)).astype("int64"), "DIAGNOSIS_CODE": codes})
+    dx_lookup = pd.DataFrame({"DIAGNOSIS_CODE_DK": np.arange(7000, 7000 + len(codes)).astype("int64"), "DIAGNOSIS_CODE": codes,
+                              "DIAGNOSIS_METHOD_CODE": ["ICD10" if c[:1].isalpha() else "ICD9" for c in codes]})
     code_dk = dict(zip(dx_lookup["DIAGNOSIS_CODE"], dx_lookup["DIAGNOSIS_CODE_DK"]))
     fact_dx = pd.DataFrame({"PATIENT_DK": cc["person_id"].astype("int64") * 10,
                             "DIAGNOSIS_DTM": pd.to_datetime(cc["event_date"]) + pd.Timedelta(hours=9),
@@ -161,8 +162,8 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
 
 
 # Native-table settings matching the mock tables, and four+ patients the eligibility criteria must remove
-# (the defaults in training/codesets.py are MCP's confirmed columns; only the diagnosis-code lookup is still to confirm)
-NATIVE = {"diagnosis": {"code_table": "DIM_DIAGNOSIS_CODE", "code_column": "DIAGNOSIS_CODE"}}
+# (the defaults in training/codesets.py are MCP's confirmed columns, so nothing needs overriding)
+NATIVE: dict = {}
 INELIGIBLE = {}   # person_id -> reason, filled by the fixture
 LATE_DEATH = {}   # person_id -> days: third-party death long after last contact (censored, not a follow-up death)
 
