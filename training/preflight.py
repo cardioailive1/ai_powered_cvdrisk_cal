@@ -64,6 +64,10 @@ def _table(spark, tbl: str) -> dict:
             "columns": [{"name": f.name, "type": f.dataType.simpleString()} for f in spark.table(tbl).schema.fields]}
 
 
+DX_LOOKUP_CANDIDATES = ("DIM_DIAGNOSIS_CODE", "DIM_DIAGNOSIS", "DIM_DIAGNOSIS_CODES", "DIM_ICD_CODE", "DIM_ICD",
+                        "DIM_DIAGNOSIS_CODE_ICD", "DIM_CODE")
+
+
 def native_preflight(spark, cdm: str, native: str, cfg: dict) -> dict:
     """Native-table checks: columns of every table (to fill native_sources.json), the DIM_PATIENT person key, how
     OMOP person links to it, and (once configured) match rates and value distributions. Aggregates only."""
@@ -130,12 +134,26 @@ def native_preflight(spark, cdm: str, native: str, cfg: dict) -> dict:
         if r is not None:
             rep[key] = r
     d = cfg["diagnosis"]
+    if str(d.get("code_table", "")).startswith("CONFIRM:"):
+        # find the ICD-code lookup for DIAGNOSIS_CODE_DK: columns of the likely tables (names only)
+        rep["diagnosis_code_lookup_candidates"] = {
+            t: v for t in DX_LOOKUP_CANDIDATES
+            if (v := _table(spark, f"{native}.{t}"))["exists"]}
+    elif d.get("code_table"):
+        code = f"dc.{d['code_column']}"
+        rep["diagnosis_code_lookup"] = spark.sql(f"""
+            SELECT count(*) AS rows, count({code}) AS with_code,
+                   sum(CASE WHEN regexp_replace(upper(cast({code} AS STRING)), '[.]', '') LIKE 'I21%' THEN 1 ELSE 0 END) AS i21_rows
+            FROM (SELECT * FROM {tables['diagnosis']} LIMIT 1000000) x
+            LEFT JOIN {native}.{d['code_table']} dc ON dc.{d['code_key_column']} = x.{d['code_key_column']}""").collect()[0].asDict()
     if rep["native_tables"][d["table"]]["exists"]:
         rep["primary_diagnosis_flag_values"] = _rows(spark, f"""
             SELECT cast({d['primary_flag_column']} AS STRING) AS value, count(*) AS n FROM {tables['diagnosis']} GROUP BY 1 ORDER BY n DESC""", 20)
     m = cfg["mortality"]
     if rep["native_tables"][m["table"]]["exists"]:
         dd = "NULL" if m["death_date_column"].startswith("CONFIRM:") else m["death_date_column"]
+        if m.get("status_column") and dd != "NULL":
+            dd = f"CASE WHEN lower(cast({m['status_column']} AS STRING)) = lower({_lit(m['deceased_value'])}) THEN {dd} END"
         rep["mortality_by_year"] = _rows(spark, f"""
             SELECT year(to_date({dd})) AS death_year, count(*) AS n,
                    round(avg(CASE WHEN {m['last_live_column']} IS NOT NULL THEN 1.0 ELSE 0.0 END), 3) AS last_live_filled

@@ -146,24 +146,28 @@ NATIVE_SOURCES = {
         "clinic_number_column": "PATIENT_CLINIC_NUMBER",              # confirmed: same person across systems
         "merged_flag_column": "PATIENT_MERGED_FLAG",                  # confirmed
         "unmerged_value": "N",                                        # confirmed: one row per person
-        "omop_person_column": "CONFIRM:OMOP person column holding PATIENT_CLINIC_NUMBER (e.g. person_source_value)",
+        "omop_person_column": "person_source_value",                  # confirmed: MCP 28 Oct; preflight 22 Nov 2026, 100% match
     },
     "echo": {
         "table": "FACT_ECHO_TEST",
         "text_column": "ECHO_NOTE",                                   # confirmed 14 Oct 2026
         # PATIENT_DK (joined through DIM_PATIENT) or PATIENT_CLINIC_NUMBER (joined directly)
-        "patient_column": "CONFIRM:patient key column in FACT_ECHO_TEST (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
-        "date_column": "CONFIRM:date/time the echo was performed",
-        "id_column": "CONFIRM:unique echo test id (or leave as row number)",
+        "patient_column": "PATIENT_DK",                               # confirmed: preflight columns, 22 Nov 2026
+        "date_column": "ECHO_PERFORMED_DTM",                          # confirmed (not ORDERED/UPDATE/DATA_AVAILABLE)
+        "id_column": "ECHO_TEST_FPK",                                 # confirmed
         "title": "Echocardiogram report",
     },
     "diagnosis": {
         "table": "FACT_DIAGNOSIS",                                    # confirmed 21 Oct 2026
-        "patient_column": "CONFIRM:patient key column in FACT_DIAGNOSIS (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
-        "date_column": "CONFIRM:diagnosis date/time column",
-        "code_column": "CONFIRM:ICD diagnosis code column (with or without the dot)",
+        "patient_column": "PATIENT_DK",                               # confirmed: preflight columns, 22 Nov 2026
+        "date_column": "DIAGNOSIS_DTM",                               # confirmed
+        # FACT_DIAGNOSIS holds no ICD code, only DIAGNOSIS_CODE_DK -> a lookup table that holds the code.
+        # Set code_table to "" if a workspace's FACT_DIAGNOSIS carries the code itself in code_column.
+        "code_key_column": "DIAGNOSIS_CODE_DK",                       # confirmed
+        "code_table": "CONFIRM:lookup table with the ICD code for DIAGNOSIS_CODE_DK (e.g. DIM_DIAGNOSIS_CODE)",
+        "code_column": "CONFIRM:ICD code column in that lookup table (with or without the dot)",
         "primary_flag_column": "PRIMARY_DIAGNOSIS_FLAG",              # confirmed
-        "primary_value": "CONFIRM:value of PRIMARY_DIAGNOSIS_FLAG meaning primary (e.g. Y)",
+        "primary_value": "Y",                                         # confirmed: preflight values Y / N / null
         "encounter_column": "ENCOUNTER_NUMBER",                       # confirmed (links to FACT_ENCOUNTERS)
     },
     # Signed ECG interpretations (MCP ECG data deck, Nov 2026): the cart drafts codes and text in MUSE, a
@@ -183,8 +187,12 @@ NATIVE_SOURCES = {
     },
     "mortality": {
         "table": "FACT_MORTALITY_STATUS",                             # confirmed 21 Oct 2026
-        "patient_column": "CONFIRM:patient key column in FACT_MORTALITY_STATUS (PATIENT_DK or PATIENT_CLINIC_NUMBER)",
-        "death_date_column": "CONFIRM:date of death column",
+        "patient_column": "PATIENT_CLINIC_NUMBER",                    # confirmed: the table has no PATIENT_DK
+        # CONSENSUS_* combines the Mayo record (EHR_*), third-party data (FOD_*), discharge-expired and the cancer
+        # registry into one death date and status; only rows with status 'deceased' count as a death.
+        "death_date_column": "CONSENSUS_DEATH_DATE",                  # confirmed: preflight columns, 22 Nov 2026
+        "status_column": "CONSENSUS_STATUS",                          # confirmed
+        "deceased_value": "deceased",
         "last_live_column": "EHR_LAST_LIVE_INTERACTION_DTM",          # confirmed
     },
 }
