@@ -15,8 +15,8 @@ How it works
     join hints are dropped, xxhash64 -> FARM_FINGERPRINT (deterministic index-visit pick), make_date -> DATE;
   * dataset names are passed to the SQL builders as placeholders and replaced with the real, backtick-quoted
     names after translation (BigQuery project ids contain hyphens, which Spark SQL cannot parse);
-  * the intermediate results the SQL reuses (cvd_cohort, cvd_candidate_codes, cvd_evidence_procedures) are saved as
-    tables in <your project>.temp_tables, expiring after TEMP_TABLE_DAYS days; only the final extract reaches the
+  * the intermediate results the SQL reuses (cvd_visits, cvd_screened, cvd_cohort, cvd_candidate_codes,
+    cvd_evidence_procedures) are saved as tables in <your project>.temp_tables, expiring after TEMP_TABLE_DAYS days; only the final extract reaches the
     workspace folder. Nothing leaves the workspace.
 Needs google-cloud-bigquery and db-dtypes (preinstalled for Mayo's notebooks; else pip install them).
 """

@@ -166,3 +166,31 @@ def test_preflight_missing_table_still_reported(bq):
     eng = BigQueryEngine("mcp-ss-data-p-test.no_such_dataset", DATA, backend=bq["backend"])
     rep = preflight.run_preflight(eng, "__CDM__", "__NAT__", str(bq["cfg"]))
     assert rep["error"].startswith("Missing OMOP tables")
+
+
+def test_lipid_window_edges():
+    """I3 (lipid panel 0-365 days before the visit), done with the ordered per-person list in 00a_visits, keeps exactly
+    the visits the plain date-range join would keep: same day and day 365 count; day 366 and the day after do not."""
+    v0 = pd.Timestamp("2015-06-01")
+    lipid_offsets = {1: 0, 2: 365, 3: 366, 4: -1, 5: 100}       # person -> lipid days before the visit (-1 = day after)
+    people = [1, 2, 3, 4, 5, 6]                                 # person 6: no lipid at all
+    person = pd.DataFrame({"person_id": people, "year_of_birth": 1960, "month_of_birth": 1, "day_of_birth": 1,
+                           "gender_concept_id": 8507, "race_concept_id": 0, "ethnicity_concept_id": 0})
+    visits = pd.DataFrame({"person_id": people, "visit_concept_id": 9202, "visit_start_date": v0})
+    visits = pd.concat([visits, pd.DataFrame({"person_id": [5], "visit_concept_id": [9202],    # 2nd visit, lipid 401 days before
+                                              "visit_start_date": [v0 + pd.Timedelta(days=301)]})])
+    op = pd.DataFrame({"person_id": people, "observation_period_start_date": pd.Timestamp("2010-01-01"),
+                       "observation_period_end_date": pd.Timestamp("2022-01-01")})
+    meas = pd.DataFrame({"person_id": list(lipid_offsets), "measurement_concept_id": 3027114,
+                         "measurement_date": [v0 - pd.Timedelta(days=d) for d in lipid_offsets.values()]})
+    concept = pd.DataFrame({"concept_id": [3027114], "vocabulary_id": ["LOINC"], "concept_code": ["2093-3"]})
+    for df in (visits, op, meas):
+        for c in df.columns:
+            if c.endswith("_date"):
+                df[c] = df[c].dt.date
+    backend = DuckBackend({"person": person, "visit_occurrence": visits, "observation_period": op,
+                           "measurement": meas, "concept": concept})
+    eng = BigQueryEngine(DATA, backend=backend)
+    sql = extract.render_sql("__CDM__", "2012-01-01", "2019-12-31")["00a_visits"]
+    got = {(int(r["person_id"]), str(r["index_date"])[:10]) for r in eng.sql(sql).collect()}
+    assert got == {(1, "2015-06-01"), (2, "2015-06-01"), (5, "2015-06-01")}
