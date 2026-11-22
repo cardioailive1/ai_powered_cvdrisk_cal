@@ -118,7 +118,7 @@ def test_preflight_on_mock(extracted, tmp_path):
     cfg.write_text(json.dumps(NATIVE))
     rep = run_preflight(spark, "global_temp", "global_temp", str(cfg))
     assert all(rep["omop_tables"].values()) and rep["fact_echo_test_exists"]
-    assert {c["name"] for c in rep["fact_echo_test_columns"]} >= {"ECHO_NOTE", "ECHO_DTM", "PATIENT_DK"}
+    assert {c["name"] for c in rep["fact_echo_test_columns"]} >= {"ECHO_NOTE", "ECHO_PERFORMED_DTM", "PATIENT_DK"}
     assert rep["native_unconfirmed"] == []
     assert rep["echo_person_bridge"]["match_rate"] == 1.0                 # including echoes filed under a merged DK
     assert rep["diagnosis_person_link"]["match_rate"] == 1.0 and rep["mortality_person_link"]["match_rate"] == 1.0

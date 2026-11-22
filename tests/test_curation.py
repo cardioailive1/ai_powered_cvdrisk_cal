@@ -203,16 +203,23 @@ def test_reader_policy(env):
 def test_echo_native_config_requires_confirmation():
     from training.extract import load_native_config, render_native_sql, unconfirmed
     cfg = load_native_config("/nonexistent.json")
-    assert len(unconfirmed(cfg)) == 9 and len(unconfirmed(cfg, ("echo",))) == 2
-    cfg["patient_link"]["omop_person_column"] = "person_source_value"
-    cfg["echo"].update(patient_column="PATIENT_CLINIC_NUMBER", date_column="ECHO_DTM")
-    cfg["diagnosis"].update(patient_column="PATIENT_DK", date_column="DX_DTM", code_column="DX_CODE", primary_value="Y")
-    cfg["mortality"].update(patient_column="PATIENT_DK", death_date_column="DEATH_DTM")
+    # MCP's columns are confirmed (preflight, 22 Nov 2026); only the diagnosis-code lookup table is left
+    assert [u.split(":")[0] for u in unconfirmed(cfg)] == ["diagnosis.code_table", "diagnosis.code_column"]
+    assert not unconfirmed(cfg, ("echo", "mortality", "ecg", "patient_link"))
+    cfg["diagnosis"].update(code_table="DIM_DIAGNOSIS_CODE", code_column="DIAGNOSIS_CODE")
     sql = render_native_sql("p.native", "p.omop", cfg)
     assert not unconfirmed(cfg) and not any("CONFIRM" in q for q in sql.values()) and "ECHO_NOTE" in sql["11_echo_notes_event"]
-    assert "DIM_PATIENT" not in sql["10_echo_notes_baseline"]               # clinic number: direct join
-    assert "p.native.DIM_PATIENT" in sql["12_primary_dx"] and "PRIMARY_DIAGNOSIS_FLAG" in sql["12_primary_dx"]
-    assert "EHR_LAST_LIVE_INTERACTION_DTM" in sql["13_mortality"]
+    assert "ECHO_PERFORMED_DTM" in sql["10_echo_notes_baseline"] and "p.native.DIM_PATIENT" in sql["10_echo_notes_baseline"]
+    dx = sql["12_primary_dx"]
+    assert "p.native.DIM_DIAGNOSIS_CODE dc ON dc.DIAGNOSIS_CODE_DK = x.DIAGNOSIS_CODE_DK" in dx and "dc.DIAGNOSIS_CODE" in dx
+    assert "PRIMARY_DIAGNOSIS_FLAG" in dx and "upper('Y')" in dx
+    mort = sql["13_mortality"]
+    assert "DIM_PATIENT" not in mort and "x.PATIENT_CLINIC_NUMBER" in mort           # keyed by clinic number: direct join
+    assert "CONSENSUS_STATUS" in mort and "'deceased'" in mort and "CONSENSUS_DEATH_DATE" in mort
+    assert "EHR_LAST_LIVE_INTERACTION_DTM" in mort
+    cfg["diagnosis"].update(code_table="", code_column="DX_CODE")                   # code stored in FACT_DIAGNOSIS
+    dx = render_native_sql("p.native", "p.omop", cfg)["12_primary_dx"]
+    assert "dc." not in dx and "x.DX_CODE" in dx
 
 
 def test_old_native_config_file_still_loads(tmp_path):

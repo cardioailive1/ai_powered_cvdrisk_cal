@@ -121,8 +121,11 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
                      pd.DataFrame({"PATIENT_DK": pid[pid % 2 == 0] * 10 + 1, "PATIENT_CLINIC_NUMBER": "MCN" + pid[pid % 2 == 0].astype(str),
                                    "PATIENT_MERGED_FLAG": "Y"})], ignore_index=True)
     dk = lambda p: p.astype("int64") * 10 + (p.astype("int64") % 2 == 0)  # noqa: E731  (second-system key for even ids)
-    fact_echo = pd.DataFrame({"ECHO_ID": echo["note_id"].astype(str), "PATIENT_DK": dk(echo["person_id"]),
-                              "ECHO_DTM": pd.to_datetime(echo["note_date"]) + pd.Timedelta(hours=10), "ECHO_NOTE": echo["note_text"]})
+    # column names as on MCP (preflight, 22 Nov 2026)
+    fact_echo = pd.DataFrame({"ECHO_TEST_FPK": echo["note_id"].astype("int64"), "PATIENT_DK": dk(echo["person_id"]),
+                              "ECHO_ORDERED_DTM": pd.to_datetime(echo["note_date"]) - pd.Timedelta(days=2),
+                              "ECHO_PERFORMED_DTM": pd.to_datetime(echo["note_date"]) + pd.Timedelta(hours=10),
+                              "ECHO_NOTE": echo["note_text"]})
     # FACT_ECG: one row per interpretation snippet (ECG_INTERPRET_SEQ_NBR), each repeating the signed full text
     ecg = ev[is_ecg].reset_index(drop=True)
     snip = ecg.loc[ecg.index.repeat(3)].reset_index()
@@ -133,13 +136,19 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
                              "ECG_INTERPRET_FULL_TEXT": snip["note_text"],
                              "ECG_INTERPRET_EXTENSION_TEXT": np.where(snip["index"] % 4 == 0, "Compared with prior tracing.", "")})
     cc = raw["candidate_codes"]
+    # FACT_DIAGNOSIS holds DIAGNOSIS_CODE_DK, not the code; the code is in a lookup table (as on MCP)
+    codes = sorted(cc["code"].str.replace(".", "", regex=False).unique())
+    dx_lookup = pd.DataFrame({"DIAGNOSIS_CODE_DK": np.arange(7000, 7000 + len(codes)).astype("int64"), "DIAGNOSIS_CODE": codes})
+    code_dk = dict(zip(dx_lookup["DIAGNOSIS_CODE"], dx_lookup["DIAGNOSIS_CODE_DK"]))
     fact_dx = pd.DataFrame({"PATIENT_DK": cc["person_id"].astype("int64") * 10,
                             "DIAGNOSIS_DTM": pd.to_datetime(cc["event_date"]) + pd.Timedelta(hours=9),
-                            "DIAGNOSIS_CODE": cc["code"].str.replace(".", "", regex=False),
+                            "DIAGNOSIS_CODE_DK": cc["code"].str.replace(".", "", regex=False).map(code_dk).astype("int64"),
                             "PRIMARY_DIAGNOSIS_FLAG": np.where(cc["condition_status_concept_id"].isin(cs.PRIMARY_STATUS), "Y", "N"),
                             "ENCOUNTER_NUMBER": np.arange(len(cc)).astype(str)})
     death_ts = pd.to_datetime(F["index_date"] + pd.to_timedelta(F["death_days"], unit="D"))
-    mort = pd.DataFrame({"PATIENT_DK": pid * 10, "DEATH_DTM": death_ts,
+    # FACT_MORTALITY_STATUS is keyed by clinic number; a death counts only when CONSENSUS_STATUS = 'deceased'
+    mort = pd.DataFrame({"PATIENT_CLINIC_NUMBER": "MCN" + pid.astype(str), "CONSENSUS_DEATH_DATE": death_ts,
+                         "CONSENSUS_STATUS": np.where(death_ts.notna(), "deceased", "living"),
                          "EHR_LAST_LIVE_INTERACTION_DTM": F["index_date"] + pd.to_timedelta(F["followup_days"], unit="D")})
     empty_obs = pd.DataFrame({"person_id": pd.Series(dtype="int64"), "observation_source_concept_id": pd.Series(dtype="int64"),
                               "observation_date": pd.Series(dtype="object")})
@@ -148,15 +157,12 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
             "drug_exposure": pd.DataFrame(drugs), "concept_ancestor": pd.DataFrame(anc),
             "procedure_occurrence": pd.DataFrame(procs), "note": note, "concept": pd.DataFrame(C.rows),
             "FACT_ECHO_TEST": fact_echo, "DIM_PATIENT": dim, "FACT_DIAGNOSIS": fact_dx, "FACT_MORTALITY_STATUS": mort,
-            "FACT_ECG": fact_ecg}
+            "FACT_ECG": fact_ecg, "DIM_DIAGNOSIS_CODE": dx_lookup}
 
 
 # Native-table settings matching the mock tables, and four+ patients the eligibility criteria must remove
-NATIVE = {"patient_link": {"omop_person_column": "person_source_value"},
-          "echo": {"patient_column": "PATIENT_DK", "date_column": "ECHO_DTM", "id_column": "ECHO_ID"},
-          "diagnosis": {"patient_column": "PATIENT_DK", "date_column": "DIAGNOSIS_DTM", "code_column": "DIAGNOSIS_CODE",
-                        "primary_value": "Y"},
-          "mortality": {"patient_column": "PATIENT_DK", "death_date_column": "DEATH_DTM"}}
+# (the defaults in training/codesets.py are MCP's confirmed columns; only the diagnosis-code lookup is still to confirm)
+NATIVE = {"diagnosis": {"code_table": "DIM_DIAGNOSIS_CODE", "code_column": "DIAGNOSIS_CODE"}}
 INELIGIBLE = {}   # person_id -> reason, filled by the fixture
 LATE_DEATH = {}   # person_id -> days: third-party death long after last contact (censored, not a follow-up death)
 
@@ -177,9 +183,11 @@ def make_ineligible(raw, omop):
     alive = [p for p in F.index[4:] if pd.isna(F.loc[p, "death_days"])][:2]
     mort = omop["FACT_MORTALITY_STATUS"]
     p4, p5 = alive
-    mort.loc[mort.PATIENT_DK == p4 * 10, "DEATH_DTM"] = pd.Timestamp(F.loc[p4, "index_date"]) - pd.Timedelta(days=30)
+    mort.loc[mort.PATIENT_CLINIC_NUMBER == f"MCN{p4}", ["CONSENSUS_DEATH_DATE", "CONSENSUS_STATUS"]] = [
+        pd.Timestamp(F.loc[p4, "index_date"]) - pd.Timedelta(days=30), "deceased"]
     late = float(F.loc[p5, "followup_days"]) + 3 * 365
-    mort.loc[mort.PATIENT_DK == p5 * 10, "DEATH_DTM"] = pd.Timestamp(F.loc[p5, "index_date"]) + pd.Timedelta(days=late)
+    mort.loc[mort.PATIENT_CLINIC_NUMBER == f"MCN{p5}", ["CONSENSUS_DEATH_DATE", "CONSENSUS_STATUS"]] = [
+        pd.Timestamp(F.loc[p5, "index_date"]) + pd.Timedelta(days=late), "deceased"]
     INELIGIBLE.update({pids[0]: "pediatric", pids[1]: "age_90_plus", pids[2]: "sex", pids[3]: "died_before_index",
                        p4: "died_before_index_external"})
     LATE_DEATH[p5] = late

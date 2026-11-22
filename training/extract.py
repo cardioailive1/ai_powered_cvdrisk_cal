@@ -308,6 +308,8 @@ def load_native_config(path: str | Path | None = None) -> dict:
     p = Path(path) if path else NATIVE_CONFIG
     if p.exists():
         for src, over in json.loads(p.read_text()).items():
+            if src.startswith("_"):
+                continue
             over = dict(over)
             if src == "echo" and "person_bridge" in over:        # older files: echo.person_bridge -> patient_link
                 cfg["patient_link"]["omop_person_column"] = over.pop("person_bridge")
@@ -356,7 +358,16 @@ JOIN {cdm}.person p ON p.person_id = {{pid}}
 {native_join(native, cfg, "echo")}
 WHERE x.{txt} IS NOT NULL"""
     d = cfg["diagnosis"]
+    if d.get("code_table"):                       # ICD code via a lookup table (FACT_DIAGNOSIS.DIAGNOSIS_CODE_DK)
+        key = _col(d["code_key_column"])
+        dx_join = f"JOIN {native}.{_col(d['code_table'])} dc ON dc.{key} = x.{key}"
+        dx_code = f"dc.{_col(d['code_column'])}"
+    else:                                         # ICD code stored in FACT_DIAGNOSIS itself
+        dx_join, dx_code = "", f"x.{_col(d['code_column'])}"
     m = cfg["mortality"]
+    death = f"x.{_col(m['death_date_column'])}"
+    if m.get("status_column"):
+        death = f"CASE WHEN lower(cast(x.{_col(m['status_column'])} AS STRING)) = lower({_val(m['deceased_value'])}) THEN {death} END"
     g = cfg["ecg"]
     gid, gdt, gtx = _col(g["id_column"]), _col(g["date_column"]), _col(g["text_column"])
     gext = _col(g["extension_column"]) if g.get("extension_column") else None
@@ -375,9 +386,10 @@ SELECT DISTINCT cc.person_id, cc.event_date, cc.code
 FROM cvd_candidate_codes cc
 JOIN {cdm}.person p ON p.person_id = cc.person_id
 {native_join(native, cfg, "diagnosis")}
+{dx_join}
 WHERE upper(cast(x.{_col(d['primary_flag_column'])} AS STRING)) = upper({_val(d['primary_value'])})
   AND to_date(x.{_col(d['date_column'])}) BETWEEN date_sub(cc.event_date, 1) AND date_add(cc.event_date, 1)
-  AND regexp_replace(upper(cast(x.{_col(d['code_column'])} AS STRING)), '[.]', '') = regexp_replace(upper(cc.code), '[.]', '')
+  AND regexp_replace(upper(cast({dx_code} AS STRING)), '[.]', '') = regexp_replace(upper(cc.code), '[.]', '')
 """,
         "14_ecg_event": f"""-- Signed ECG interpretations around candidate events (-3 to +30 days), one row per ECG ({g['id_column']}):
 -- {g['table']} stores one row per interpretation snippet, each repeating the full narrative (MCP ECG deck).
@@ -396,7 +408,7 @@ WHERE x.{gtx} IS NOT NULL
 GROUP BY t.person_id, x.{gid}
 """,
         "13_mortality": f"""-- Death date (Mayo record + third-party death data) and last live interaction from FACT_MORTALITY_STATUS
-SELECT co.person_id, MIN(to_date(x.{_col(m['death_date_column'])})) AS death_date_ext,
+SELECT co.person_id, MIN(to_date({death})) AS death_date_ext,
        MAX(to_date(x.{_col(m['last_live_column'])})) AS last_live_date
 FROM cvd_cohort co
 JOIN {cdm}.person p ON p.person_id = co.person_id
