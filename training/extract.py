@@ -42,7 +42,7 @@ import pandas as pd
 from cardioai_core.schema import AGE_MAX, AGE_MIN, INDEX_WINDOW
 
 from . import codesets as cs
-from .imaging_nlp import parse_imaging_reports
+from .imaging_nlp import imaging_values, latest_imaging, parse_imaging_reports
 
 log = logging.getLogger("cardioai.extract")
 SQL_DIR = Path(__file__).parent / "sql"
@@ -468,9 +468,12 @@ def finished(path: Path) -> bool:
         return False
 
 
-def read_in_batches(path: Path, columns: list[str], rows: int = 50_000):
+RESUME_BATCH_ROWS = 50_000
+
+
+def read_in_batches(path: Path, columns: list[str], rows: int | None = None):
     import pyarrow.parquet as pq
-    for b in pq.ParquetFile(path).iter_batches(batch_size=rows, columns=columns):
+    for b in pq.ParquetFile(path).iter_batches(batch_size=rows or RESUME_BATCH_ROWS, columns=columns):
         yield b.to_pandas()
 
 
@@ -687,19 +690,20 @@ def run_extract(spark, a) -> Path:
     done = a.resume and finished(img_path)
     if done:                                  # --resume: reuse the imaging notes of an earlier run
         log.info("Resuming: %s already written, parsing it instead of downloading again", img_path.name)
-        imaging_parts = [parse_imaging_reports(b) for b in read_in_batches(img_path, ["person_id", "note_date", "note_text"])]
+        imaging_parts = [imaging_values(b) for b in read_in_batches(img_path, ["person_id", "note_date", "note_text"])]
     img_writer = None if done else NoteWriter(img_path)
     for frames in ([] if done else notes_by_slice(img_names)):
         frames[0]["note_title"] = "Imaging report"         # added after note_text, as before
         imaging = keep_people(merge_notes(*frames), cohort)
         if len(imaging):
             imaging["note_id"] = imaging["note_id"].astype(str)
-            imaging_parts.append(parse_imaging_reports(imaging))
+            imaging_parts.append(imaging_values(imaging))
             img_writer.write(imaging)
         del imaging, frames
     if img_writer is not None:
         img_writer.close()
-    parsed = pd.concat(imaging_parts) if imaging_parts else None
+    # values per note, combined across slices/batches, then the latest per person (a person can span batches)
+    parsed = latest_imaging(pd.concat(imaging_parts)) if imaging_parts else None
     feats = assemble_features(cohort, q("02_measurements"), q("03_history"), q("04_drugs"), None, imaging_parsed=parsed)
     feats.to_parquet(out / "features.parquet", index=False)
 
