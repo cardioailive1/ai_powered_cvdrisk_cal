@@ -54,14 +54,23 @@ def extract_lvef(text: str) -> float | None:
     return None
 
 
-def parse_imaging_reports(notes: pd.DataFrame) -> pd.DataFrame:
-    """notes: person_id, note_date, note_text -> per-person latest cac_score / lvef."""
-    n = notes.copy()
-    n["cac_score"] = n["note_text"].map(extract_cac)
-    n["lvef"] = n["note_text"].map(extract_lvef)
-    n = n.sort_values("note_date")
-    out = n.groupby("person_id").agg(
+def imaging_values(notes: pd.DataFrame) -> pd.DataFrame:
+    """notes: person_id, note_date, note_text -> one row per note that states a CAC score or LVEF."""
+    n = notes[["person_id", "note_date"]].copy()
+    n["cac_score"] = notes["note_text"].map(extract_cac).astype(float)
+    n["lvef"] = notes["note_text"].map(extract_lvef).astype(float)
+    return n[n["cac_score"].notna() | n["lvef"].notna()]
+
+
+def latest_imaging(values: pd.DataFrame) -> pd.DataFrame:
+    """Per-note values (from any number of batches) -> per-person latest cac_score / lvef."""
+    n = values.assign(note_date=pd.to_datetime(values["note_date"])).sort_values("note_date", kind="stable")
+    return n.groupby("person_id").agg(
         cac_score=("cac_score", lambda s: s.dropna().iloc[-1] if s.notna().any() else np.nan),
         lvef=("lvef", lambda s: s.dropna().iloc[-1] if s.notna().any() else np.nan),
     )
-    return out
+
+
+def parse_imaging_reports(notes: pd.DataFrame) -> pd.DataFrame:
+    """notes: person_id, note_date, note_text -> per-person latest cac_score / lvef."""
+    return latest_imaging(imaging_values(notes))

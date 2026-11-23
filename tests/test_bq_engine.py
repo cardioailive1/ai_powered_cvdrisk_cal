@@ -197,9 +197,11 @@ def test_lipid_window_edges():
     assert got == {(1, "2015-06-01"), (2, "2015-06-01"), (5, "2015-06-01")}
 
 
-def test_resume_reuses_finished_note_files(bq, tmp_path):
-    """--resume keeps note files a stopped run finished; a file cut off mid-write is downloaded again."""
+def test_resume_reuses_finished_note_files(bq, tmp_path, monkeypatch):
+    """--resume keeps note files a stopped run finished; a file cut off mid-write is downloaded again. The saved
+    imaging notes are re-read in small batches, so one patient's reports fall in several batches (as on MCP)."""
     import shutil
+    monkeypatch.setattr(extract, "RESUME_BATCH_ROWS", 7)
     raw = tmp_path / "raw"
     shutil.copytree(Path(bq["cfg"]).parent / "raw", raw)
     full = (raw / "event_notes.parquet").read_bytes()
@@ -230,3 +232,21 @@ def test_missing_values_from_bigquery_are_nan():
     assert extract._harmonize("ldl", 3.0, nan) == 3.0
     assert extract_cac(nan) is None and extract_lvef(nan) is None
     assert sentences(nan) == []
+
+
+def test_imaging_values_combine_across_batches():
+    """One patient's reports split over two download batches: one row per patient, latest value of each kind."""
+    from training.imaging_nlp import imaging_values, latest_imaging
+    a = pd.DataFrame({"person_id": [1, 2], "note_date": ["2015-01-01", "2015-02-01"],
+                      "note_text": ["Agatston calcium score 120. LVEF 40%.", "No measurements."]})
+    b = pd.DataFrame({"person_id": [1], "note_date": ["2016-01-01"], "note_text": ["Ejection fraction 55%."]})
+    out = latest_imaging(pd.concat([imaging_values(a), imaging_values(b)]))
+    assert out.index.is_unique and list(out.index) == [1]
+    assert out.loc[1, "lvef"] == 55 and out.loc[1, "cac_score"] == 120
+    cohort = pd.DataFrame({"person_id": [1, 2], "index_date": ["2016-06-01"] * 2, "age": [60.0, 61.0],
+                           "gender_concept_id": [8507, 8532], "race_concept_id": [0, 0], "ethnicity_concept_id": [0, 0],
+                           "obs_end": ["2020-01-01"] * 2, "death_date": [None, None]})
+    empty = pd.DataFrame(columns=["person_id", "feature", "value", "unit"])
+    f = extract.assemble_features(cohort, empty, pd.DataFrame(columns=["person_id", "flag", "last_date"]),
+                                  pd.DataFrame(columns=["person_id", "flag"]), None, imaging_parsed=out)
+    assert f.set_index("person_id").loc[1, "lvef"] == 55 and pd.isna(f.set_index("person_id").loc[2, "lvef"])
