@@ -25,7 +25,7 @@ _EF_SINGLE = re.compile(r"(?:lvef|ejection\s+fraction|\bef\b)[^0-9%]{0,40}?(\d{1
 
 
 def extract_cac(text: str) -> float | None:
-    if not text:
+    if not isinstance(text, str) or not text:
         return None
     if _CAC_ZERO.search(text):
         return 0.0
@@ -39,7 +39,7 @@ def extract_cac(text: str) -> float | None:
 
 
 def extract_lvef(text: str) -> float | None:
-    if not text:
+    if not isinstance(text, str) or not text:
         return None
     m = _EF_RANGE.search(text)
     if m:

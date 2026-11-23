@@ -195,3 +195,38 @@ def test_lipid_window_edges():
     sql = extract.render_sql("__CDM__", "2012-01-01", "2019-12-31")["00a_visits"]
     got = {(int(r["person_id"]), str(r["index_date"])[:10]) for r in eng.sql(sql).collect()}
     assert got == {(1, "2015-06-01"), (2, "2015-06-01"), (5, "2015-06-01")}
+
+
+def test_resume_reuses_finished_note_files(bq, tmp_path):
+    """--resume keeps note files a stopped run finished; a file cut off mid-write is downloaded again."""
+    import shutil
+    raw = tmp_path / "raw"
+    shutil.copytree(Path(bq["cfg"]).parent / "raw", raw)
+    full = (raw / "event_notes.parquet").read_bytes()
+    (raw / "event_notes.parquet").write_bytes(full[: len(full) // 2])          # as if killed while writing
+    for f in ("features", "candidate_codes"):
+        (raw / f"{f}.parquet").unlink()
+    backend = bq["backend"]
+    seen_before = len(backend.sql_seen)
+    a = extract.parse_args(["--engine", "bigquery", "--cdm", DATA, "--native-dataset", DATA, "--resume",
+                            "--native-config", str(bq["cfg"]), "--out", str(raw)])
+    eng, a = extract.session(a, backend=backend)
+    extract.run_extract(eng, a)
+    new_sql = "\n".join(backend.sql_seen[seen_before:])
+    assert "cvd_06_baseline_imaging_notes" not in new_sql                       # imaging notes reused
+    assert "cvd_09_event_notes" in new_sql                                      # partial event notes redone
+    for f in ("features", "candidate_codes", "event_notes", "baseline_imaging_notes"):
+        k = list(bq["out"][f].columns)
+        again = pd.read_parquet(raw / f"{f}.parquet")
+        norm = lambda d: d[k].astype(str).sort_values(k).reset_index(drop=True)   # noqa: E731
+        assert norm(again).equals(norm(bq["out"][f])), f
+
+
+def test_missing_values_from_bigquery_are_nan():
+    """BigQuery returns a missing unit or note text as NaN (a float), not None."""
+    nan = float("nan")
+    from training.imaging_nlp import extract_cac, extract_lvef
+    from training.nlp import sentences
+    assert extract._harmonize("ldl", 3.0, nan) == 3.0
+    assert extract_cac(nan) is None and extract_lvef(nan) is None
+    assert sentences(nan) == []

@@ -130,6 +130,8 @@ If the run is stopped, rerunning the same command starts again from the beginnin
 
 Note text (imaging reports, echo reports, event notes, ECG interpretations) is saved in `temp_tables` and downloaded a slice of patients at a time (`--note-chunks`, default 20), so the notebook machine holds one slice in memory, not every note. If the log ends with `Killed`, the machine ran out of memory: shut down idle notebook kernels (JupyterLab → Kernel → Shut Down All Kernels; check with `free -h`) and rerun with a larger `--note-chunks`, e.g. 50.
 
+If a run stops partway, add `--resume` to the same command: note files it already finished in `data/raw` (baseline imaging, event notes) are kept, and a file cut off mid-write is downloaded again. The cohort and the smaller tables are rebuilt (minutes).
+
 Run it so it keeps going when the terminal closes, and follow the log:
 ```bash
 nohup python -m training.extract --engine bigquery ... --out data/raw > extract.log 2>&1 &
