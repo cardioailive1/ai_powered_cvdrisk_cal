@@ -87,6 +87,7 @@ def test_sql_is_bigquery(bq):
     for spark_only in ("xxhash64", "/*+", "__CDM__", "__NAT__", "RLIKE", "make_date"):
         assert spark_only not in seen, spark_only
     assert "FARM_FINGERPRINT" in seen and "DATE_ADD(" in seen
+    assert "COALESCE(SAFE_CAST(m.measurement_datetime AS TIMESTAMP), SAFE_CAST(m.measurement_date AS TIMESTAMP))" in seen  # MCP: DATETIME
     assert "`temp_tables`.`cvd_09_event_notes` WHERE MOD(person_id, NULLIF(20, 0)) = 19" in seen   # notes fetched in slices
 
 

@@ -292,7 +292,7 @@ JOIN {C}.concept c ON c.concept_id = pc.concept_id
     sql["08_evidence_labs"] = f"""-- Post-index troponin / natriuretic peptide results (with reference range when available)
 WITH loinc_map AS {_values(ev_rows, ('code', 'analyte'))}
 SELECT co.person_id, lm.analyte,
-       coalesce(m.measurement_datetime, cast(m.measurement_date AS TIMESTAMP)) AS measured_at,
+       coalesce(cast(m.measurement_datetime AS TIMESTAMP), cast(m.measurement_date AS TIMESTAMP)) AS measured_at,  -- MCP: DATETIME
        m.value_as_number AS value, coalesce(u.concept_code, m.unit_source_value) AS unit, m.range_high
 FROM cvd_cohort co
 JOIN {C}.measurement m ON m.person_id = co.person_id AND m.measurement_date > co.index_date
