@@ -120,13 +120,21 @@ python -m training.extract --render-only --cdm $OMOP --native-dataset $NATIVE   
 python -m training.extract --engine bigquery --cdm $OMOP --native-dataset $NATIVE \
        --index-start 2012-01-01 --index-end 2019-12-31 --out data/raw
 ```
-The rendered SQL in 3.1 is Spark SQL; the BigQuery version is produced from it at run time (`training/bq_engine.py`). On a Spark workspace, drop `--engine bigquery`; give the Spark driver **≥ 32 GB** for `toPandas()` of the notes table. The final extract files need a similar amount of notebook memory on BigQuery. The extraction refuses to run while any `CONFIRM:` setting remains.
+The rendered SQL in 3.1 is Spark SQL; the BigQuery version is produced from it at run time (`training/bq_engine.py`). On a Spark workspace, drop `--engine bigquery`; give the Spark driver **≥ 32 GB**. The extraction refuses to run while any `CONFIRM:` setting remains.
 
 The log shows `Running <step> ...` for each of the 17 steps. The first two (`00a_visits`, `00b_screened`) scan all outpatient visits and lipid results and are the longest; they are saved to `temp_tables` (`cvd_visits`, `cvd_screened`) and reused, so the later steps are quicker. A step can sit for many minutes with no new output; to check that BigQuery is still working, run in a second terminal:
 ```bash
 python -c "from google.cloud import bigquery as b; [print(j.state, j.created, j.ended, j.error_result) for j in b.Client().list_jobs(max_results=3)]"
 ```
 If the run is stopped, rerunning the same command starts again from the beginning.
+
+Note text (imaging reports, echo reports, event notes, ECG interpretations) is saved in `temp_tables` and downloaded a slice of patients at a time (`--note-chunks`, default 20), so the notebook machine holds one slice in memory, not every note. If the log ends with `Killed`, the machine ran out of memory: shut down idle notebook kernels (JupyterLab → Kernel → Shut Down All Kernels; check with `free -h`) and rerun with a larger `--note-chunks`, e.g. 50.
+
+Run it so it keeps going when the terminal closes, and follow the log:
+```bash
+nohup python -m training.extract --engine bigquery ... --out data/raw > extract.log 2>&1 &
+tail -5 extract.log
+```
 
 **3.3 Sanity-check row counts:**
 ```bash

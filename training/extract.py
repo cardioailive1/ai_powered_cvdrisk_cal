@@ -458,6 +458,34 @@ def apply_mortality(cohort: pd.DataFrame, mortality: pd.DataFrame | None) -> tup
     return c.loc[~dead].drop(columns=["death_date_ext", "last_live_date"]).reset_index(drop=True), int(dead.sum())
 
 
+class NoteWriter:
+    """Appends note slices to one parquet file: same file, columns and types as writing the whole table at once."""
+
+    def __init__(self, path: Path):
+        self.path, self.writer, self.rows = Path(path), None, 0
+
+    def write(self, df: pd.DataFrame) -> None:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        df = df.copy()
+        df["note_date"] = pd.to_datetime(df["note_date"])
+        t = pa.Table.from_pandas(df, preserve_index=False)
+        if self.writer is None:                       # a column empty in the first slice is text in later ones
+            schema = pa.schema([pa.field(f.name, pa.string()) if pa.types.is_null(f.type) else f for f in t.schema])
+            self.writer = pq.ParquetWriter(self.path, schema)
+        self.writer.write_table(t.select(self.writer.schema.names).cast(self.writer.schema))
+        self.rows += len(df)
+
+    def close(self) -> None:
+        if self.writer is None:                       # no notes at all: an empty file with the usual columns
+            pd.DataFrame({"person_id": pd.Series(dtype="int64"), "note_id": pd.Series(dtype="object"),
+                          "note_date": pd.Series(dtype="datetime64[ns]"), "note_title": pd.Series(dtype="object"),
+                          "note_text": pd.Series(dtype="object")}).to_parquet(self.path, index=False)
+        else:
+            self.writer.close()
+        log.info("  %s: %d notes", self.path.name, self.rows)
+
+
 def merge_notes(*frames: pd.DataFrame) -> pd.DataFrame:
     """Union note sources; drop duplicates of the same text on the same day (OMOP note vs native copy)."""
     df = pd.concat([f for f in frames if f is not None and len(f)], ignore_index=True)
@@ -493,7 +521,7 @@ def _harmonize(feature: str, value: float, unit: str | None) -> float:
 
 
 def assemble_features(cohort: pd.DataFrame, meas: pd.DataFrame, hist: pd.DataFrame, drugs: pd.DataFrame,
-                      imaging_notes: pd.DataFrame | None) -> pd.DataFrame:
+                      imaging_notes: pd.DataFrame | None, imaging_parsed: pd.DataFrame | None = None) -> pd.DataFrame:
     """Long tables from the SQL -> one row per patient (baseline features + follow-up)."""
     df = cohort.copy()
     df["index_date"] = pd.to_datetime(df["index_date"])
@@ -532,9 +560,10 @@ def assemble_features(cohort: pd.DataFrame, meas: pd.DataFrame, hist: pd.DataFra
 
     df["cac_score"] = np.nan
     df["lvef"] = np.nan
-    if imaging_notes is not None and len(imaging_notes):
-        img = parse_imaging_reports(imaging_notes)
-        df.update(img[["cac_score", "lvef"]])
+    if imaging_parsed is None and imaging_notes is not None and len(imaging_notes):
+        imaging_parsed = parse_imaging_reports(imaging_notes)
+    if imaging_parsed is not None and len(imaging_parsed):
+        df.update(imaging_parsed[["cac_score", "lvef"]])
 
     obs_end = pd.to_datetime(df["obs_end"])
     death = pd.to_datetime(df["death_date"])
@@ -622,15 +651,35 @@ def run_extract(spark, a) -> Path:
     attrition = write_attrition(attrition_counts, out, died_external=died_external)
     log.info("Eligibility: %s", attrition)
     log.info("Cohort: %d adult patients", len(cohort))
-    imaging = q("06_baseline_imaging_notes")
-    imaging["note_title"] = "Imaging report"
-    if a.native_dataset:
-        imaging = merge_notes(imaging, q("10_echo_notes_baseline"))
-    imaging = keep_people(imaging, cohort)
-    imaging["note_id"] = imaging["note_id"].astype(str)
-    feats = assemble_features(cohort, q("02_measurements"), q("03_history"), q("04_drugs"), imaging)
+    # Note text is large (hundreds of thousands of patients' reports): each note query is saved on the server once,
+    # then fetched, de-duplicated and written a slice of patients at a time, so memory holds one slice, not all notes.
+    def notes_by_slice(names: list[str]):
+        for name in names:
+            log.info("Running %s ...", name)
+            df = spark.sql(sql[name]).cache()
+            df.createOrReplaceTempView(f"cvd_{name}")
+            log.info("  cvd_%s: %d rows", name, df.count())
+        n = max(1, int(a.note_chunks))
+        for k in range(n):
+            log.info("  notes slice %d/%d", k + 1, n)
+            yield [_decimals_to_float(spark.sql(f"SELECT * FROM cvd_{name} WHERE person_id % {n} = {k}").toPandas())
+                   for name in names]
+
+    imaging_parts, img_writer = [], NoteWriter(out / "baseline_imaging_notes.parquet")
+    img_names = ["06_baseline_imaging_notes"] + (["10_echo_notes_baseline"] if a.native_dataset else [])
+    for frames in notes_by_slice(img_names):
+        frames[0]["note_title"] = "Imaging report"         # added after note_text, as before
+        imaging = keep_people(merge_notes(*frames), cohort)
+        if len(imaging):
+            imaging["note_id"] = imaging["note_id"].astype(str)
+            imaging_parts.append(parse_imaging_reports(imaging))
+            img_writer.write(imaging)
+        del imaging, frames
+    img_writer.close()
+    parsed = pd.concat(imaging_parts) if imaging_parts else None
+    feats = assemble_features(cohort, q("02_measurements"), q("03_history"), q("04_drugs"), None, imaging_parsed=parsed)
     feats.to_parquet(out / "features.parquet", index=False)
-    imaging.to_parquet(out / "baseline_imaging_notes.parquet", index=False)
+
     def keep(df: pd.DataFrame) -> pd.DataFrame:      # drop rows of patients removed after the SQL (exclusion E4)
         return df[df["person_id"].isin(feats["person_id"])].reset_index(drop=True)
 
@@ -643,12 +692,15 @@ def run_extract(spark, a) -> Path:
     codes.to_parquet(out / "candidate_codes.parquet", index=False)
     keep(q("07_evidence_procedures")).to_parquet(out / "evidence_procedures.parquet", index=False)
     keep(q("08_evidence_labs")).to_parquet(out / "evidence_labs.parquet", index=False)
-    notes = q("09_event_notes")
-    if a.native_dataset:
-        notes = merge_notes(notes, q("11_echo_notes_event"), q("14_ecg_event"))
-    notes = keep(notes)
-    notes["note_id"] = notes["note_id"].astype(str)
-    notes.to_parquet(out / "event_notes.parquet", index=False)
+    note_writer = NoteWriter(out / "event_notes.parquet")
+    ev_names = ["09_event_notes"] + (["11_echo_notes_event", "14_ecg_event"] if a.native_dataset else [])
+    for frames in notes_by_slice(ev_names):
+        notes = keep(merge_notes(*frames))
+        if len(notes):
+            notes["note_id"] = notes["note_id"].astype(str)
+            note_writer.write(notes)
+        del notes, frames
+    note_writer.close()
     log.info("Raw curation dataset written to %s — next: python -m curation.pipeline label", out)
     return out
 
@@ -664,6 +716,8 @@ def parse_args(argv=None):
     ap.add_argument("--native-dataset", help="Spark catalog.schema holding Mayo native tables (DIM_PATIENT, FACT_ECHO_TEST, FACT_DIAGNOSIS, FACT_MORTALITY_STATUS)")
     ap.add_argument("--native-config", help="JSON overriding training/codesets.NATIVE_NOTE_SOURCES (default training/native_sources.json)")
     ap.add_argument("--render-only", action="store_true", help="write SQL to training/sql/ and exit (no data access)")
+    ap.add_argument("--note-chunks", type=int, default=20,
+                    help="note tables are downloaded this many slices of patients at a time (raise it if memory runs out)")
     ap.add_argument("--out", default="data/raw")
     return ap.parse_args(argv)
 
