@@ -122,6 +122,12 @@ python -m training.extract --engine bigquery --cdm $OMOP --native-dataset $NATIV
 ```
 The rendered SQL in 3.1 is Spark SQL; the BigQuery version is produced from it at run time (`training/bq_engine.py`). On a Spark workspace, drop `--engine bigquery`; give the Spark driver **≥ 32 GB** for `toPandas()` of the notes table. The final extract files need a similar amount of notebook memory on BigQuery. The extraction refuses to run while any `CONFIRM:` setting remains.
 
+The log shows `Running <step> ...` for each of the 17 steps. The first two (`00a_visits`, `00b_screened`) scan all outpatient visits and lipid results and are the longest; they are saved to `temp_tables` (`cvd_visits`, `cvd_screened`) and reused, so the later steps are quicker. A step can sit for many minutes with no new output; to check that BigQuery is still working, run in a second terminal:
+```bash
+python -c "from google.cloud import bigquery as b; [print(j.state, j.created, j.ended, j.error_result) for j in b.Client().list_jobs(max_results=3)]"
+```
+If the run is stopped, rerunning the same command starts again from the beginning.
+
 **3.3 Sanity-check row counts:**
 ```bash
 python - <<'EOF'

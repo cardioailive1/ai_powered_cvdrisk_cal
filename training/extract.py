@@ -52,7 +52,7 @@ SQL_DIR = Path(__file__).parent / "sql"
 # Spark SQL (Mayo Clinic Platform queries data with SparkSQL). Intermediate tables (cohort, candidate
 # codes, evidence procedures) are registered as cached TEMPORARY VIEWS in the Spark session, so no
 # write access to a scratch schema is needed. Requires Spark >= 3.3.
-VIEWS = {"01_cohort": "cvd_cohort", "05_candidate_codes": "cvd_candidate_codes", "07_evidence_procedures": "cvd_evidence_procedures"}
+VIEWS = {"00a_visits": "cvd_visits", "00b_screened": "cvd_screened", "01_cohort": "cvd_cohort", "05_candidate_codes": "cvd_candidate_codes", "07_evidence_procedures": "cvd_evidence_procedures"}
 
 
 def _lit(v) -> str:
@@ -111,7 +111,14 @@ def render_sql(cdm: str, index_start: str, index_end: str, lookback_days: int = 
     sql: dict[str, str] = {}
     adult = f"age >= {AGE_MIN} AND age < {AGE_MAX + 1}"
     sexes = ", ".join(map(str, cs.GENDER))
-    base = f"""WITH visits AS (
+    # The cohort is built in three steps; the first two are saved (cvd_visits, cvd_screened) and reused, so the
+    # big scans of visit_occurrence and measurement run once, not once per query.
+    # I3 (lipid panel in the 365 days before the visit): instead of joining every visit to every lipid result in a
+    # date range (very slow on BigQuery), visits and lipid dates are put in one date-ordered list per person and each
+    # visit takes the latest lipid date on or before it (same-day lipids count); kept if it is within 365 days.
+    sql["00a_visits"] = f"""-- Outpatient visits in the index window with >= 1 year of prior observation and a lipid panel in the
+-- 365 days before (I2-I4); all ages (the age criteria are applied next)  [-> temp view cvd_visits]
+WITH vis AS (
   SELECT DISTINCT v.person_id, v.visit_start_date AS index_date,
          cast(datediff(v.visit_start_date, {dob}) AS DOUBLE) / 365.25 AS age
   FROM {C}.visit_occurrence v
@@ -119,15 +126,33 @@ def render_sql(cdm: str, index_start: str, index_end: str, lookback_days: int = 
   JOIN {C}.observation_period op
     ON op.person_id = v.person_id
    AND v.visit_start_date BETWEEN date_add(op.observation_period_start_date, 365) AND op.observation_period_end_date
-  JOIN {C}.measurement m
-    ON m.person_id = v.person_id
-   AND m.measurement_date BETWEEN date_sub(v.visit_start_date, 365) AND v.visit_start_date
-  JOIN {C}.concept c
-    ON c.concept_id = m.measurement_concept_id AND c.vocabulary_id = 'LOINC' AND c.concept_code IN ({lipid_codes})
   WHERE v.visit_concept_id IN ({outpatient})
     AND v.visit_start_date BETWEEN DATE '{index_start}' AND DATE '{index_end}'
 ),
-candidate_visits AS (SELECT * FROM visits WHERE {adult}),   -- I1 / E1 / E2: adults {AGE_MIN}-{AGE_MAX} at the visit
+lipid AS (
+  SELECT DISTINCT m.person_id, m.measurement_date AS d
+  FROM {C}.measurement m
+  JOIN {C}.concept c
+    ON c.concept_id = m.measurement_concept_id AND c.vocabulary_id = 'LOINC' AND c.concept_code IN ({lipid_codes})
+  WHERE m.measurement_date BETWEEN date_sub(DATE '{index_start}', 365) AND DATE '{index_end}'
+),
+ev AS (
+  SELECT person_id, index_date AS d, 1 AS is_visit, age FROM vis
+  UNION ALL
+  SELECT person_id, d, 0 AS is_visit, cast(NULL AS DOUBLE) AS age FROM lipid
+),
+marked AS (
+  SELECT person_id, d, is_visit, age,
+         MAX(CASE WHEN is_visit = 0 THEN d END) OVER (PARTITION BY person_id ORDER BY d, is_visit
+                                                      ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS last_lipid
+  FROM ev
+)
+SELECT person_id, d AS index_date, age
+FROM marked
+WHERE is_visit = 1 AND last_lipid >= date_sub(d, 365)
+"""
+    sql["00b_screened"] = f"""-- One index visit per adult patient, with the exclusion flags  [-> temp view cvd_screened]
+WITH candidate_visits AS (SELECT * FROM cvd_visits WHERE {adult}),   -- I1 / E1 / E2: adults {AGE_MIN}-{AGE_MAX} at the visit
 ranked AS (
   SELECT person_id, index_date, age,
          ROW_NUMBER() OVER (PARTITION BY person_id
@@ -147,40 +172,37 @@ obs AS (
     ON op.person_id = i.person_id AND i.index_date BETWEEN op.observation_period_start_date AND op.observation_period_end_date
   GROUP BY i.person_id
 ),
-dth AS (SELECT person_id, MIN(death_date) AS death_date FROM {C}.death GROUP BY person_id),
-screened AS (
-  SELECT i.person_id, i.index_date, i.age, i.gender_concept_id, i.race_concept_id, i.ethnicity_concept_id,
-         o.obs_end, d.death_date,
-         i.gender_concept_id IN ({sexes}) AS sex_ok,                                  -- I5 / E3
-         (d.death_date IS NULL OR d.death_date > i.index_date) AS alive_at_index,      -- E4
-         (o.obs_end > i.index_date) AS has_followup                                    -- E5
-  FROM idx i
-  LEFT JOIN obs o ON o.person_id = i.person_id
-  LEFT JOIN dth d ON d.person_id = i.person_id
-)"""
-    sql["01_cohort"] = f"""-- Landmark cohort: one index outpatient visit per ADULT patient  [-> temp view cvd_cohort]
--- Eligibility (cardioai_core.schema.ELIGIBILITY): I1-I5 inclusion, E1-E5 exclusion; adults {AGE_MIN}-{AGE_MAX} only, no pediatric patients
-{base}
-SELECT person_id, index_date, age, gender_concept_id, race_concept_id, ethnicity_concept_id, obs_end, death_date
-FROM screened
-WHERE sex_ok AND alive_at_index AND has_followup
+dth AS (SELECT person_id, MIN(death_date) AS death_date FROM {C}.death GROUP BY person_id)
+SELECT i.person_id, i.index_date, i.age, i.gender_concept_id, i.race_concept_id, i.ethnicity_concept_id,
+       o.obs_end, d.death_date,
+       i.gender_concept_id IN ({sexes}) AS sex_ok,                                  -- I5 / E3
+       (d.death_date IS NULL OR d.death_date > i.index_date) AS alive_at_index,      -- E4
+       (o.obs_end > i.index_date) AS has_followup                                    -- E5
+FROM idx i
+LEFT JOIN obs o ON o.person_id = i.person_id
+LEFT JOIN dth d ON d.person_id = i.person_id
 """
     sql["00_cohort_attrition"] = f"""-- Patient counts removed by each eligibility criterion (aggregate only; small cells suppressed in Python)
-{base},
-people AS (
+WITH people AS (
   SELECT person_id, MAX(CASE WHEN {adult} THEN 1 ELSE 0 END) AS any_adult,
          MAX(CASE WHEN age < {AGE_MIN} THEN 1 ELSE 0 END) AS any_pediatric
-  FROM visits GROUP BY person_id
+  FROM cvd_visits GROUP BY person_id
 )
 SELECT
   (SELECT count(*) FROM people) AS with_eligible_visit,
   (SELECT count(*) FROM people WHERE any_adult = 0 AND any_pediatric = 1) AS excluded_pediatric_only,
   (SELECT count(*) FROM people WHERE any_adult = 0 AND any_pediatric = 0) AS excluded_age_90_plus_only,
-  (SELECT count(*) FROM screened) AS adults_with_index_visit,
-  (SELECT count(*) FROM screened WHERE NOT sex_ok) AS excluded_sex_not_recorded,
-  (SELECT count(*) FROM screened WHERE sex_ok AND NOT alive_at_index) AS excluded_died_before_index,
-  (SELECT count(*) FROM screened WHERE sex_ok AND alive_at_index AND NOT has_followup) AS excluded_no_followup,
-  (SELECT count(*) FROM screened WHERE sex_ok AND alive_at_index AND has_followup) AS final_cohort
+  (SELECT count(*) FROM cvd_screened) AS adults_with_index_visit,
+  (SELECT count(*) FROM cvd_screened WHERE NOT sex_ok) AS excluded_sex_not_recorded,
+  (SELECT count(*) FROM cvd_screened WHERE sex_ok AND NOT alive_at_index) AS excluded_died_before_index,
+  (SELECT count(*) FROM cvd_screened WHERE sex_ok AND alive_at_index AND NOT has_followup) AS excluded_no_followup,
+  (SELECT count(*) FROM cvd_screened WHERE sex_ok AND alive_at_index AND has_followup) AS final_cohort
+"""
+    sql["01_cohort"] = f"""-- Landmark cohort: one index outpatient visit per ADULT patient  [-> temp view cvd_cohort]
+-- Eligibility (cardioai_core.schema.ELIGIBILITY): I1-I5 inclusion, E1-E5 exclusion; adults {AGE_MIN}-{AGE_MAX} only, no pediatric patients
+SELECT person_id, index_date, age, gender_concept_id, race_concept_id, ethnicity_concept_id, obs_end, death_date
+FROM cvd_screened
+WHERE sex_ok AND alive_at_index AND has_followup
 """
 
     loinc_rows = [(code, feat) for feat, codes in cs.LOINC.items() for code in codes]
@@ -582,8 +604,16 @@ def run_extract(spark, a) -> Path:
             log.info("  %s: %d rows", VIEWS[name], df.count())
         return _decimals_to_float(df.toPandas())
 
+    def save(name: str) -> None:               # intermediate step: saved for reuse, never downloaded
+        log.info("Running %s ...", name)
+        df = spark.sql(sql[name]).cache()
+        df.createOrReplaceTempView(VIEWS[name])
+        log.info("  %s: %d rows", VIEWS[name], df.count())
+
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    save("00a_visits")
+    save("00b_screened")
     attrition_counts = q("00_cohort_attrition")
     cohort = q("01_cohort")
     died_external = None
