@@ -42,7 +42,8 @@ STATUSES = ("affirmed", "negated", "historical", "hypothetical")
 
 def sentences(text: str) -> list[tuple[int, str]]:
     out, pos = [], 0
-    for part in _SENT.split(text or ""):
+    text = text if isinstance(text, str) else ""          # a missing note text comes back as NaN
+    for part in _SENT.split(text):
         i = text.find(part, pos)
         if part.strip():
             out.append((i, part))
@@ -91,7 +92,7 @@ def highlight_segments(text: str, keys: Iterable[str], max_excerpts: int = 6, ra
     Context status is NOT included (adjudicators judge it themselves)."""
     spans = []
     for k in keys:
-        for m in PATTERNS[k].finditer(text or ""):
+        for m in PATTERNS[k].finditer(text if isinstance(text, str) else ""):
             spans.append((m.start(), m.end()))
     spans.sort()
     excerpts, last_end = [], -1

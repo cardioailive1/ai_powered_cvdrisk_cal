@@ -458,6 +458,22 @@ def apply_mortality(cohort: pd.DataFrame, mortality: pd.DataFrame | None) -> tup
     return c.loc[~dead].drop(columns=["death_date_ext", "last_live_date"]).reset_index(drop=True), int(dead.sum())
 
 
+def finished(path: Path) -> bool:
+    """True if a parquet file was written completely (a run stopped mid-write leaves a file without its footer)."""
+    try:
+        import pyarrow.parquet as pq
+        pq.ParquetFile(path)
+        return True
+    except Exception:          # noqa: BLE001 (missing, partial or unreadable: write it again)
+        return False
+
+
+def read_in_batches(path: Path, columns: list[str], rows: int = 50_000):
+    import pyarrow.parquet as pq
+    for b in pq.ParquetFile(path).iter_batches(batch_size=rows, columns=columns):
+        yield b.to_pandas()
+
+
 class NoteWriter:
     """Appends note slices to one parquet file: same file, columns and types as writing the whole table at once."""
 
@@ -502,7 +518,7 @@ _TO_MGDL = {"total_chol": 38.67, "hdl": 38.67, "ldl": 38.67, "trig": 88.57, "glu
 
 
 def _harmonize(feature: str, value: float, unit: str | None) -> float:
-    u = (unit or "").lower().replace(" ", "")
+    u = unit.lower().replace(" ", "") if isinstance(unit, str) else ""      # a missing unit comes back as NaN
     if feature == "height_cm" and u in {"[in_i]", "in", "inch", "inches", "[in_us]"}:
         return value * 2.54
     if feature == "height_cm" and u in {"m"}:
@@ -665,9 +681,15 @@ def run_extract(spark, a) -> Path:
             yield [_decimals_to_float(spark.sql(f"SELECT * FROM cvd_{name} WHERE person_id % {n} = {k}").toPandas())
                    for name in names]
 
-    imaging_parts, img_writer = [], NoteWriter(out / "baseline_imaging_notes.parquet")
+    imaging_parts = []
+    img_path = out / "baseline_imaging_notes.parquet"
     img_names = ["06_baseline_imaging_notes"] + (["10_echo_notes_baseline"] if a.native_dataset else [])
-    for frames in notes_by_slice(img_names):
+    done = a.resume and finished(img_path)
+    if done:                                  # --resume: reuse the imaging notes of an earlier run
+        log.info("Resuming: %s already written, parsing it instead of downloading again", img_path.name)
+        imaging_parts = [parse_imaging_reports(b) for b in read_in_batches(img_path, ["person_id", "note_date", "note_text"])]
+    img_writer = None if done else NoteWriter(img_path)
+    for frames in ([] if done else notes_by_slice(img_names)):
         frames[0]["note_title"] = "Imaging report"         # added after note_text, as before
         imaging = keep_people(merge_notes(*frames), cohort)
         if len(imaging):
@@ -675,7 +697,8 @@ def run_extract(spark, a) -> Path:
             imaging_parts.append(parse_imaging_reports(imaging))
             img_writer.write(imaging)
         del imaging, frames
-    img_writer.close()
+    if img_writer is not None:
+        img_writer.close()
     parsed = pd.concat(imaging_parts) if imaging_parts else None
     feats = assemble_features(cohort, q("02_measurements"), q("03_history"), q("04_drugs"), None, imaging_parsed=parsed)
     feats.to_parquet(out / "features.parquet", index=False)
@@ -692,15 +715,19 @@ def run_extract(spark, a) -> Path:
     codes.to_parquet(out / "candidate_codes.parquet", index=False)
     keep(q("07_evidence_procedures")).to_parquet(out / "evidence_procedures.parquet", index=False)
     keep(q("08_evidence_labs")).to_parquet(out / "evidence_labs.parquet", index=False)
-    note_writer = NoteWriter(out / "event_notes.parquet")
-    ev_names = ["09_event_notes"] + (["11_echo_notes_event", "14_ecg_event"] if a.native_dataset else [])
-    for frames in notes_by_slice(ev_names):
-        notes = keep(merge_notes(*frames))
-        if len(notes):
-            notes["note_id"] = notes["note_id"].astype(str)
-            note_writer.write(notes)
-        del notes, frames
-    note_writer.close()
+    ev_path = out / "event_notes.parquet"
+    if a.resume and finished(ev_path):
+        log.info("Resuming: %s already written", ev_path.name)
+    else:
+        note_writer = NoteWriter(ev_path)
+        ev_names = ["09_event_notes"] + (["11_echo_notes_event", "14_ecg_event"] if a.native_dataset else [])
+        for frames in notes_by_slice(ev_names):
+            notes = keep(merge_notes(*frames))
+            if len(notes):
+                notes["note_id"] = notes["note_id"].astype(str)
+                note_writer.write(notes)
+            del notes, frames
+        note_writer.close()
     log.info("Raw curation dataset written to %s — next: python -m curation.pipeline label", out)
     return out
 
@@ -718,6 +745,8 @@ def parse_args(argv=None):
     ap.add_argument("--render-only", action="store_true", help="write SQL to training/sql/ and exit (no data access)")
     ap.add_argument("--note-chunks", type=int, default=20,
                     help="note tables are downloaded this many slices of patients at a time (raise it if memory runs out)")
+    ap.add_argument("--resume", action="store_true",
+                    help="keep note files a stopped run already finished in --out (the cohort is rebuilt; it is quick)")
     ap.add_argument("--out", default="data/raw")
     return ap.parse_args(argv)
 
