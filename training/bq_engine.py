@@ -12,7 +12,8 @@ and each project can write only to its own `temp_tables` dataset (Mayo's mcp_dat
 
 How it works
   * every query is translated from Spark SQL to BigQuery SQL with sqlglot; Spark-only pieces are handled here:
-    join hints are dropped, xxhash64 -> FARM_FINGERPRINT (deterministic index-visit pick), make_date -> DATE;
+    join hints are dropped, xxhash64 -> FARM_FINGERPRINT (deterministic index-visit pick), make_date -> DATE,
+    concat_ws -> ARRAY_TO_STRING (BigQuery has no CONCAT_WS);
   * dataset names are passed to the SQL builders as placeholders and replaced with the real, backtick-quoted
     names after translation (BigQuery project ids contain hyphens, which Spark SQL cannot parse);
   * the intermediate results the SQL reuses (cvd_visits, cvd_screened, cvd_cohort, cvd_candidate_codes,
@@ -43,6 +44,9 @@ def to_bigquery(spark_sql: str, datasets: dict[str, str], views: dict[str, str])
     tree = sqlglot.parse_one(_HINT.sub("", spark_sql), read="spark")
 
     def fix(node):
+        if isinstance(node, exp.ConcatWs):                 # BigQuery has no CONCAT_WS; ARRAY_TO_STRING also skips NULLs
+            sep, *items = node.expressions
+            return exp.Anonymous(this="ARRAY_TO_STRING", expressions=[exp.Array(expressions=items), sep])
         if isinstance(node, exp.Anonymous) and node.name.lower() in _RENAME:
             return exp.Anonymous(this=_RENAME[node.name.lower()], expressions=node.expressions)
         if isinstance(node, exp.Table):

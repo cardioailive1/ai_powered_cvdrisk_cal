@@ -84,9 +84,10 @@ def test_sql_is_bigquery(bq):
     seen = "\n".join(bq["backend"].sql_seen)
     assert "`mcp-ss-data-p-test`.`vw_accelerate_core_v1`.`person`" in seen        # real, quoted names
     assert f"`{LOCAL_PROJECT}`.`temp_tables`.`cvd_cohort`" in seen               # intermediate tables in temp_tables
-    for spark_only in ("xxhash64", "/*+", "__CDM__", "__NAT__", "RLIKE", "make_date"):
+    for spark_only in ("xxhash64", "/*+", "__CDM__", "__NAT__", "RLIKE", "make_date", "CONCAT_WS"):
         assert spark_only not in seen, spark_only
     assert "FARM_FINGERPRINT" in seen and "DATE_ADD(" in seen
+    assert "ARRAY_TO_STRING([MAX(x.ECG_INTERPRET_FULL_TEXT), MAX(x.ECG_INTERPRET_EXTENSION_TEXT)], ' ')" in seen  # no CONCAT_WS
     assert "COALESCE(SAFE_CAST(m.measurement_datetime AS TIMESTAMP), SAFE_CAST(m.measurement_date AS TIMESTAMP))" in seen  # MCP: DATETIME
     assert "`temp_tables`.`cvd_09_event_notes` WHERE MOD(person_id, NULLIF(20, 0)) = 19" in seen   # notes fetched in slices
 
