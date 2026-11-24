@@ -406,7 +406,7 @@ def make_set(data_dir, set_name: str, trainer_dir, usernames: list[str] | None =
                              "key_subtype": k["subtype"], "key_event_date": k["event_date"], "key_lvef": "", "key_cac_score": "",
                              "confirmed_by": "", "note": ""})
     if spec["annotation"]:
-        notes = [n for n in rd.baseline_notes.index if n not in used]
+        notes = [n for n in rd.all_baseline_note_ids() if n not in used]
         for nid in rng.choice(notes, size=min(spec["annotation"], len(notes)), replace=False):
             tr = ann_truth.get(str(nid), {})
             key_rows.append({"ref_id": str(nid), "case_type": "annotation", "family": "imaging", "key_outcome": "",

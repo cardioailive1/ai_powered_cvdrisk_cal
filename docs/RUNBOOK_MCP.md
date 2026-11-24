@@ -182,6 +182,8 @@ python -m curation.pipeline label        # candidate events → labelling functi
                                          # then the required automatic audit (22 checks → pass / warn / fail)
 python -m curation.pipeline plan-workload # reads and hours per cardiologist for 2, 3 or 4 readers
 ```
+**Notes on MCP.** `event_notes.parquet` is large (13.5 million notes, ~31 GB), so it is never loaded whole. The first `label` run splits it once by patient into `data/raw/event_notes_by_person/` (64 files, sorted, zstd-compressed; it needs free disk space of up to the size of `event_notes.parquet`: check with `df -h ~`) and then labels one patient bucket at a time; the log shows the progress. The copy is rebuilt only if `event_notes.parquet` changes. Baseline imaging reports are likewise read in batches, and the workbench reads one patient's notes at a time. Run it with `nohup … > label.log 2>&1 &` like the extraction.
+
 🔒 **The automatic audit is a required step.** It runs as part of `label` and cannot be skipped: the data scientist review (Phase 6), cardiologist adjudication (Phase 7) and the release sign-offs stay locked until the current label run has an audit. If the audit did not finish, run `python -m curation.pipeline audit`. If the extracted data changes after labelling, the audit is refused; run `label` again.
 
 The reports are in `data/label_runs/<LR-id>/`: `AUDIT_REPORT.md`, `lf_stats.json` and `labels.parquet`.

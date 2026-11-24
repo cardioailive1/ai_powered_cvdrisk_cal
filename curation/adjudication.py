@@ -85,7 +85,10 @@ def create_sample(db: Session, run: LabelRun, labels: pd.DataFrame, baseline_not
     bn = baseline_notes
     if len(bn):
         from training.imaging_nlp import extract_cac, extract_lvef
-        hit = bn["note_text"].map(lambda t: extract_lvef(t) is not None or extract_cac(t) is not None)
+        if "note_text" in bn:          # report text, or per-report values already extracted (runs.baseline_annotation)
+            hit = bn["note_text"].map(lambda t: extract_lvef(t) is not None or extract_cac(t) is not None)
+        else:
+            hit = bn["lvef"].notna() | bn["cac"].notna()
         k = S["annotation_sample"]
         k_hit, k_miss = min(int(k * 0.8), int(hit.sum())), min(k - int(k * 0.8), int((~hit).sum()))
         # stratified: reports with and without an extracted value (misses are over-sampled on purpose;

@@ -229,12 +229,15 @@ def run_audit(features: pd.DataFrame, labels: pd.DataFrame, evidence_counts: dic
 
     # Annotation (CAC / LVEF from reports)
     if baseline_notes is not None and len(baseline_notes):
-        from .imaging_nlp import extract_cac, extract_lvef
+        from .imaging_nlp import extract_cac, extract_lvef, imaging_keywords
         bn = baseline_notes
-        has_kw_ef = bn["note_text"].str.contains(r"ejection fraction|lvef|\bef\b", case=False, regex=True)
-        has_kw_cac = bn["note_text"].str.contains(r"agatston|calcium", case=False, regex=True)
-        ef_hit = bn.loc[has_kw_ef, "note_text"].map(extract_lvef).notna().mean() if has_kw_ef.any() else 1.0
-        cac_hit = bn.loc[has_kw_cac, "note_text"].map(extract_cac).notna().mean() if has_kw_cac.any() else 1.0
+        if "note_text" in bn:                   # report text; or per-report results already computed (kw_ef, kw_cac, lvef, cac)
+            kw_ef, kw_cac = imaging_keywords(bn["note_text"])
+            bn = pd.DataFrame({"kw_ef": kw_ef, "kw_cac": kw_cac, "lvef": bn["note_text"].map(extract_lvef).astype(float),
+                               "cac": bn["note_text"].map(extract_cac).astype(float)})
+        has_kw_ef, has_kw_cac = bn["kw_ef"].astype(bool), bn["kw_cac"].astype(bool)
+        ef_hit = bn.loc[has_kw_ef, "lvef"].notna().mean() if has_kw_ef.any() else 1.0
+        cac_hit = bn.loc[has_kw_cac, "cac"].notna().mean() if has_kw_cac.any() else 1.0
         worst = float(min(ef_hit, cac_hit))
         checks.append(_check("annotation_yield", "Annotation", "Reports mentioning LVEF/CAC where a value was extracted",
                              _status(worst, A["annotation_yield_warn"], None, higher_is_worse=False), round(worst, 3),

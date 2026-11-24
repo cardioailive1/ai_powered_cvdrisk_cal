@@ -54,6 +54,17 @@ def extract_lvef(text: str) -> float | None:
     return None
 
 
+EF_KEYWORDS = r"ejection fraction|lvef|\bef\b"
+CAC_KEYWORDS = r"agatston|calcium"
+
+
+def imaging_keywords(texts: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """Whether each report mentions LVEF, and whether it mentions a calcium score (the audit's annotation yield)."""
+    t = texts.fillna("").astype(str)
+    return (t.str.contains(EF_KEYWORDS, case=False, regex=True).to_numpy(),
+            t.str.contains(CAC_KEYWORDS, case=False, regex=True).to_numpy())
+
+
 def imaging_values(notes: pd.DataFrame) -> pd.DataFrame:
     """notes: person_id, note_date, note_text -> one row per note that states a CAC score or LVEF."""
     n = notes[["person_id", "note_date"]].copy()
