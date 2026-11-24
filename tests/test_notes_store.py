@@ -87,3 +87,61 @@ def test_baseline_annotation_streamed(data):
     b = {c["id"]: c for c in run_audit(raw["features"], labels, {}, ann, cfg)["checks"]}
     assert a["annotation_yield"]["value"] == b["annotation_yield"]["value"]
     assert runs.baseline_annotation(data).equals(ann)          # cached result reused
+
+
+def test_split_resumes_after_stop(data, monkeypatch, tmp_path):
+    """A split stopped part-way (session ended, killed) keeps finished parts when run again; result is complete."""
+    import shutil
+    import pyarrow.parquet as pq
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    src = pd.read_parquet(data / "raw" / "event_notes.parquet")
+    pq.write_table(__import__("pyarrow").Table.from_pandas(src, preserve_index=False), raw / "event_notes.parquet",
+                   row_group_size=max(len(src) // 5, 1))                       # several row groups, like MCP's 40
+    monkeypatch.setattr(notes_store, "NOTE_BUCKETS", 4)
+    real = pq.ParquetFile.iter_batches
+    calls = {"n": 0}
+
+    def stop_on_third(self, *a, **k):
+        if k.get("row_groups") == [2]:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise MemoryError("killed")
+        return real(self, *a, **k)
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", stop_on_third)
+    with pytest.raises(MemoryError):
+        notes_store.ensure(raw)
+    done = sorted(p.name for p in (raw / "event_notes_by_person.building" / "split").glob("*.done"))
+    assert done == ["rg00000.done", "rg00001.done"]
+    notes_store.ensure(raw)                                                    # resumes at row group 2
+    allb = pd.concat([notes_store.read_bucket(raw, k) for k in range(4)], ignore_index=True)
+    cols = list(src.columns)
+    assert _norm(allb, cols).equals(_norm(src, cols))
+    assert not (raw / "event_notes_by_person.building").exists()
+    shutil.rmtree(raw)
+
+
+def test_label_resumes_after_stop(data, monkeypatch):
+    """Labelled buckets are kept: a run stopped at bucket 3 continues from there and gives the same labels."""
+    monkeypatch.setattr(notes_store, "NOTE_BUCKETS", 5)
+    gov = governance.load(data)
+    model = labeling.DEFAULT_LABEL_MODEL | {"thresholds": gov["label_thresholds"]}
+    raw = runs.load_raw(data)
+    full = runs.label_by_bucket(data, raw, model)
+    import shutil
+    shutil.rmtree(data / "label_work")
+    real, seen, state = labeling.label_candidates, [], {"stopped": False}
+
+    def flaky(cands, *a, **k):
+        seen.append(len(cands))
+        if len(seen) == 3 and not state["stopped"]:
+            state["stopped"] = True
+            raise MemoryError("killed")
+        return real(cands, *a, **k)
+    monkeypatch.setattr(labeling, "label_candidates", flaky)
+    with pytest.raises(MemoryError):
+        runs.label_by_bucket(data, raw, model)
+    seen.clear()
+    again = runs.label_by_bucket(data, raw, model)
+    assert len(seen) == 3                                       # buckets 3-5 only; 1-2 kept from the stopped run
+    assert _norm(again, list(full.columns)).equals(_norm(full, list(full.columns)))

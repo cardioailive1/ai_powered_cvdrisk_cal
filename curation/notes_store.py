@@ -53,7 +53,11 @@ def note_count(raw: Path) -> int:
 
 
 def ensure(raw: Path) -> Path:
-    """Build the per-patient copy if it is missing or older than event_notes.parquet. Returns its folder."""
+    """Build the per-patient copy if it is missing or older than event_notes.parquet. Returns its folder.
+
+    Resumable: if the run stops (session ended, out of memory), running it again keeps the work already done.
+    Pass 1 splits the source one row group at a time (a marker per finished row group); pass 2 sorts one bucket
+    at a time (a marker per finished bucket). Memory: one batch of notes, not a whole row group."""
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -61,44 +65,69 @@ def ensure(raw: Path) -> Path:
     out = _store(raw)
     if is_current(raw):
         return out
-    src = pq.ParquetFile(_source(raw))
-    total = src.metadata.num_rows
-    log.info("Splitting %s (%d notes) by patient into %s/ (once; rebuilt only if the notes change)", SOURCE, total, STORE)
-    tmp = raw / (STORE + ".building")
-    shutil.rmtree(tmp, ignore_errors=True)
-    tmp.mkdir()
+    src = pq.ParquetFile(_source(raw), buffer_size=1 << 23)      # stream pages instead of whole column chunks
+    total, n_rg = src.metadata.num_rows, src.metadata.num_row_groups
     schema = src.schema_arrow
-    writers: dict[int, pq.ParquetWriter] = {}
-    done = 0
-    try:     # pass 1: append each batch's rows to its patient bucket
-        for batch in src.iter_batches(batch_size=100_000):
-            t = pa.Table.from_batches([batch]).cast(schema)
-            buckets = t["person_id"].to_numpy() % NOTE_BUCKETS
-            for k in pd.unique(buckets):
-                part = t.filter(pa.array(buckets == k))
-                w = writers.get(int(k))
-                if w is None:
-                    w = writers[int(k)] = pq.ParquetWriter(tmp / f"unsorted-{int(k):03d}.parquet", schema, compression="zstd")
-                w.write_table(part)
-            done += len(t)
-            log.info("  split %d / %d notes", done, total)
-    finally:
-        for w in writers.values():
-            w.close()
+    tmp = raw / (STORE + ".building")
+    stamp = json.dumps(_stamp(_source(raw)), sort_keys=True)
+    if not (tmp / "SOURCE.json").exists() or (tmp / "SOURCE.json").read_text() != stamp:
+        shutil.rmtree(tmp, ignore_errors=True)       # different notes (or an older layout): start over
+        (tmp / "split").mkdir(parents=True)
+        (tmp / "SOURCE.json").write_text(stamp)
+        log.info("Splitting %s (%d notes) by patient into %s/ (once; rebuilt only if the notes change)",
+                 SOURCE, total, STORE)
+    else:
+        log.info("Resuming the split of %s by patient", SOURCE)
+    split = tmp / "split"
+
+    for i in range(n_rg):            # pass 1: each source row group -> one file per bucket
+        if (split / f"rg{i:05d}.done").exists():
+            continue
+        for f in split.glob(f"b*-rg{i:05d}.parquet"):      # partial output of an interrupted row group
+            f.unlink()
+        writers: dict[int, pq.ParquetWriter] = {}
+        try:
+            for batch in src.iter_batches(batch_size=20_000, row_groups=[i]):
+                buckets = batch.column(batch.schema.get_field_index("person_id")).to_numpy() % NOTE_BUCKETS
+                for k in pd.unique(buckets):
+                    k = int(k)
+                    if k not in writers:
+                        writers[k] = pq.ParquetWriter(split / f"b{k:03d}-rg{i:05d}.parquet", schema, compression="zstd")
+                    writers[k].write_table(pa.Table.from_batches([batch.filter(buckets == k)]).cast(schema))
+        finally:
+            for w in writers.values():
+                w.close()
+        (split / f"rg{i:05d}.done").touch()
+        log.info("  split part %d / %d (%d notes in all)", i + 1, n_rg, total)
+
     for k in range(NOTE_BUCKETS):     # pass 2: sort each bucket by patient and date, small row groups
-        u = tmp / f"unsorted-{k:03d}.parquet"
-        t = pq.read_table(u) if u.exists() else schema.empty_table()
+        if (tmp / f"bucket={k:03d}.done").exists():
+            continue
+        files = sorted(split.glob(f"b{k:03d}-rg*.parquet"))
+        t = pa_concat([pq.read_table(f) for f in files], schema)
         t = t.sort_by([("person_id", "ascending"), ("note_date", "ascending")])
         pq.write_table(t, tmp / f"bucket={k:03d}.parquet", row_group_size=ROW_GROUP_ROWS, compression="zstd")
-        u.unlink(missing_ok=True)
+        (tmp / f"bucket={k:03d}.done").touch()
+        for f in files:
+            f.unlink()
         log.info("  sorted bucket %d / %d", k + 1, NOTE_BUCKETS)
+
     rows = sum(pq.ParquetFile(f).metadata.num_rows for f in tmp.glob("bucket=*.parquet"))
     if rows != total:
         raise RuntimeError(f"Splitting notes lost rows ({rows} of {total}); {tmp} kept for inspection")
+    shutil.rmtree(split, ignore_errors=True)
+    for f in tmp.glob("*.done"):
+        f.unlink()
+    (tmp / "SOURCE.json").unlink()
     (tmp / MANIFEST).write_text(json.dumps({"source": _stamp(_source(raw)), "rows": rows}, indent=2))
     shutil.rmtree(out, ignore_errors=True)
     tmp.rename(out)
     return out
+
+
+def pa_concat(tables, schema):
+    import pyarrow as pa
+    return pa.concat_tables([t.cast(schema) for t in tables]) if tables else schema.empty_table()
 
 
 def bucket_of(person_id: int) -> int:
