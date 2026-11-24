@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import secrets
+import shutil
 from functools import lru_cache
 from pathlib import Path
 
@@ -154,13 +155,29 @@ def label_by_bucket(data_dir, raw: dict, model: dict) -> pd.DataFrame:
     sex = dict(zip(raw["features"]["person_id"], raw["features"]["sex"]))
     tables = {n: raw[n] for n in ("features", "candidate_codes", "evidence_procedures", "evidence_labs")}
     bucket = {n: (df["person_id"].astype("int64") % B).to_numpy() for n, df in tables.items()}
+    # finished buckets are kept in data/label_work/<inputs + model>/ so a stopped run resumes where it stopped
+    key = hashlib.sha256(json.dumps({"inputs": inputs_sha(data_dir), "model": model, "buckets": B},
+                                    sort_keys=True, default=str).encode()).hexdigest()[:16]
+    work = Path(data_dir) / "label_work" / key
+    work.mkdir(parents=True, exist_ok=True)
     parts = []
     for k in range(B):
+        done = work / f"bucket={k:03d}.parquet"
+        if done.exists():
+            part = pd.read_parquet(done)
+            if len(part):
+                parts.append(part)
+            log_progress(f"labelled patient bucket {k + 1} / {B} (kept from an earlier run)")
+            continue
         sub = {n: df[bucket[n] == k] for n, df in tables.items()}
         cands = labeling.build_episodes(sub["candidate_codes"], sub["evidence_procedures"], sub["features"])
+        part = pd.DataFrame()
         if len(cands):
             ev = labeling.Evidence(sub["evidence_labs"], sub["evidence_procedures"], notes_store.read_bucket(rd, k), sex)
-            parts.append(labeling.label_candidates(cands, ev, sub["features"], model))
+            part = labeling.label_candidates(cands, ev, sub["features"], model)
+            parts.append(part)
+        part.to_parquet(work.with_name(work.name + ".tmp.parquet"), index=False)
+        work.with_name(work.name + ".tmp.parquet").replace(done)
         log_progress(f"labelled patient bucket {k + 1} / {B}")
     if not parts:
         return labeling.label_candidates(labeling.build_episodes(raw["candidate_codes"], raw["evidence_procedures"],
@@ -185,6 +202,7 @@ def create_label_run(db: Session, data_dir, username: str, label_model_path: str
     out = Path(data_dir) / "label_runs" / run_id
     out.mkdir(parents=True, exist_ok=True)
     labels.to_parquet(out / "labels.parquet", index=False)
+    shutil.rmtree(Path(data_dir) / "label_work", ignore_errors=True)     # saved: the per-bucket work is no longer needed
     (out / "label_model.json").write_text(json.dumps(model, indent=2))
     stats = labeling.lf_stats(labels)
     (out / "lf_stats.json").write_text(json.dumps(stats, indent=2))
