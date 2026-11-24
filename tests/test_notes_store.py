@@ -53,6 +53,7 @@ def test_store_rebuilt_when_notes_change(data, monkeypatch):
 
 
 def test_labels_same_as_all_at_once(data, monkeypatch):
+    """Episodes, evidence and votes are built bucket by bucket: identical to building them for everyone at once."""
     monkeypatch.setattr(notes_store, "NOTE_BUCKETS", 6)
     gov = governance.load(data)
     model = labeling.DEFAULT_LABEL_MODEL | {"thresholds": gov["label_thresholds"]}
@@ -70,8 +71,8 @@ def test_labels_same_as_all_at_once(data, monkeypatch):
         db.commit()
         run = runs.create_label_run(db, data, "t")
     parts = pd.read_parquet(Path(run.path) / "labels.parquet")
-    assert list(parts["candidate_id"]) == list(whole["candidate_id"])
-    cols = [c for c in whole.columns if c not in ("codes",)]
+    assert sorted(parts["candidate_id"]) == sorted(whole["candidate_id"]) and parts["candidate_id"].is_unique
+    cols = list(whole.columns)
     assert _norm(parts, cols).equals(_norm(whole, cols))
 
 
