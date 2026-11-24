@@ -144,34 +144,42 @@ AUDIT_REQUIRED = ("The automatic audit is a required step after automatic labell
                   "or cardiologist review.")
 
 
+def label_by_bucket(data_dir, raw: dict, model: dict) -> pd.DataFrame:
+    """Candidate episodes and labelling functions, one patient bucket at a time (patient p -> p % NOTE_BUCKETS).
+    Everything here is per patient, so the result equals labelling all patients at once; memory holds one
+    bucket's episodes, evidence index and notes (8 M codes, 3 M labs and 13.5 M notes on MCP)."""
+    B = notes_store.NOTE_BUCKETS
+    rd = raw_dir(data_dir)
+    notes_store.ensure(rd)
+    sex = dict(zip(raw["features"]["person_id"], raw["features"]["sex"]))
+    tables = {n: raw[n] for n in ("features", "candidate_codes", "evidence_procedures", "evidence_labs")}
+    bucket = {n: (df["person_id"].astype("int64") % B).to_numpy() for n, df in tables.items()}
+    parts = []
+    for k in range(B):
+        sub = {n: df[bucket[n] == k] for n, df in tables.items()}
+        cands = labeling.build_episodes(sub["candidate_codes"], sub["evidence_procedures"], sub["features"])
+        if len(cands):
+            ev = labeling.Evidence(sub["evidence_labs"], sub["evidence_procedures"], notes_store.read_bucket(rd, k), sex)
+            parts.append(labeling.label_candidates(cands, ev, sub["features"], model))
+        log_progress(f"labelled patient bucket {k + 1} / {B}")
+    if not parts:
+        return labeling.label_candidates(labeling.build_episodes(raw["candidate_codes"], raw["evidence_procedures"],
+                                                                 raw["features"]), labeling.Evidence(
+            raw["evidence_labs"], raw["evidence_procedures"], None, sex), raw["features"], model)
+    out = pd.concat(parts, ignore_index=True)
+    lf_cols = [c for c in out.columns if c.startswith("lf_")]              # a bucket may lack a family's votes
+    out[lf_cols] = out[lf_cols].fillna(0).astype("int8")
+    return out.sort_values(["person_id", "family", "event_date"], kind="stable").reset_index(drop=True)
+
+
 def create_label_run(db: Session, data_dir, username: str, label_model_path: str | None = None) -> LabelRun:
     """Automatic labelling, followed immediately by the required automatic audit (one step; it cannot be skipped)."""
     gov = governance.load(data_dir)
     model = json.loads(Path(label_model_path).read_text()) if label_model_path else json.loads(json.dumps(labeling.DEFAULT_LABEL_MODEL))
     model["thresholds"] = gov["label_thresholds"]
     raw = load_raw(data_dir)
-    cands = labeling.build_episodes(raw["candidate_codes"], raw["evidence_procedures"], raw["features"])
-    ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], None,
-                           dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
-    # notes are read one patient bucket at a time (13.5 M notes on MCP); every candidate is labelled exactly once,
-    # with all of its patient's notes, so the result is the same as labelling everything at once
-    notes_store.ensure(raw_dir(data_dir))
-    bucket = cands["person_id"].astype("int64") % notes_store.NOTE_BUCKETS
-    parts = []
-    for k in range(notes_store.NOTE_BUCKETS):
-        mine = cands[bucket == k]
-        if len(mine):
-            parts.append(labeling.label_candidates(mine, ev.with_notes(notes_store.read_bucket(raw_dir(data_dir), k)),
-                                                   raw["features"], model).set_index(mine.index))
-        if (k + 1) % 8 == 0:
-            log_progress(f"labelled patient bucket {k + 1} / {notes_store.NOTE_BUCKETS}")
-    if parts:
-        labelled = pd.concat(parts).loc[cands.index].reset_index(drop=True)
-        lf_cols = [c for c in labelled.columns if c.startswith("lf_")]     # a bucket may lack a family's votes
-        labelled[lf_cols] = labelled[lf_cols].fillna(0).astype("int8")
-    else:
-        labelled = labeling.label_candidates(cands, ev, raw["features"], model)
-    labels = labeling.mark_relevance(labelled, gov["definitions"])
+    labels_all = label_by_bucket(data_dir, raw, model)
+    labels = labeling.mark_relevance(labels_all, gov["definitions"])
 
     run_id = _new_id("LR")
     out = Path(data_dir) / "label_runs" / run_id
@@ -263,6 +271,17 @@ def _clean(v):
     return v
 
 
+def _by_person(df: pd.DataFrame, then: list[str] | None = None) -> tuple[np.ndarray, pd.DataFrame]:
+    df = df.sort_values(["person_id"] + (then or []), kind="stable").reset_index(drop=True)
+    return df["person_id"].to_numpy(), df
+
+
+def _rows(table: tuple[np.ndarray, pd.DataFrame], pid) -> pd.DataFrame:
+    ids, df = table
+    i, j = np.searchsorted(ids, pid, "left"), np.searchsorted(ids, pid, "right")
+    return df.iloc[i:j]
+
+
 class _RunData:
     def __init__(self, data_dir: str, run_path: str):
         self.data_dir = data_dir
@@ -271,13 +290,19 @@ class _RunData:
         self.by_id = self.labels.set_index("candidate_id")
         raw = load_raw(data_dir)
         self.features = raw["features"].set_index("person_id")
+        # per-patient lookups on person-sorted tables (no per-patient objects for 590 k patients up front)
         codes = raw["candidate_codes"].copy()
         codes["event_date"] = pd.to_datetime(codes["event_date"])
-        self.codes = {k: v.sort_values("event_date") for k, v in codes.groupby(["person_id", "family"])}
-        self.ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], None,
-                                    dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
+        self._codes = _by_person(codes, ["family", "event_date"])
+        self._labs = _by_person(raw["evidence_labs"])
+        self._procs = _by_person(raw["evidence_procedures"])
+        self._sex = dict(zip(raw["features"]["person_id"], raw["features"]["sex"]))
         self.run_path = Path(run_path)
         self._bn = None
+
+    def _person_evidence(self, pid) -> labeling.Evidence:
+        """Labs and procedures of one patient, indexed for window lookups."""
+        return labeling.Evidence(_rows(self._labs, pid), _rows(self._procs, pid), None, self._sex)
 
     def _person_notes(self, pid):
         """One patient's notes as a time-sorted index (read from the per-patient note store)."""
@@ -314,7 +339,9 @@ class _RunData:
         age = _clean(f.get("age"))
         w = DISPLAY_WINDOW[fam]
         lo, hi = d + pd.Timedelta(days=w[0]), d + pd.Timedelta(days=w[1])
-        codes = self.codes.get((pid, fam))
+        codes = _rows(self._codes, pid)
+        codes = codes[codes["family"] == fam] if len(codes) else None
+        ev = self._person_evidence(pid)
         enc = []
         if codes is not None:
             sub = codes[(codes["event_date"] >= lo) & (codes["event_date"] <= hi)]
@@ -326,7 +353,7 @@ class _RunData:
                             "visit": vt.get(r["visit_concept_id"], "Other"),
                             "position": "Primary" if prim else "Secondary"})
         labs = []
-        for x in self.ev.labs_for(pid, d, (w[0], min(w[1], 7))):
+        for x in ev.labs_for(pid, d, (w[0], min(w[1], 7))):
             url = x.get("url")
             flag, ref = None, _clean(x.get("range_high"))
             if isinstance(url, float) and not math.isnan(url) and url > 0:
@@ -342,7 +369,7 @@ class _RunData:
                          "day": (pd.Timestamp(x["measured_at"]).normalize() - d).days, "analyte": x["analyte"],
                          "value": _clean(x["value"]), "unit": x["unit"], "ref_high": ref, "flag": flag})
         procs = [{"date": pd.Timestamp(x["procedure_date"]).date().isoformat(), "day": (pd.Timestamp(x["procedure_date"]) - d).days,
-                  "category": x["category"], "code": x["code"]} for x in self.ev.procs_for(pid, d, (min(w[0], -30) if fam == "af" else w[0], w[1]))]
+                  "category": x["category"], "code": x["code"]} for x in ev.procs_for(pid, d, (min(w[0], -30) if fam == "af" else w[0], w[1]))]
         keys = labeling.MENTION_KEYS[fam]
         notes_w = (w[0], 30) if fam == "hf" else w
         notes = []
