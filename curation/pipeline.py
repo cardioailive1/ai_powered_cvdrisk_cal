@@ -292,6 +292,8 @@ def main():
     p.add_argument("--out", default="label_model_refit.json")
     p.set_defaults(fn=cmd_refit)
     a = ap.parse_args()
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     try:
         a.fn(a)
     except (actions.ActionError, PermissionError, ValueError, RuntimeError) as e:

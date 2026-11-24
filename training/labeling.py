@@ -377,16 +377,29 @@ def subtype(fam: str, ctx: dict, codes: str, cardiac_surgery_before: bool) -> st
 class Evidence:
     """Per-person, time-sorted evidence index (labs, procedures, notes) for fast window lookups."""
 
-    def __init__(self, labs: pd.DataFrame, procs: pd.DataFrame, notes: pd.DataFrame, sex_by_person: dict | None = None):
+    def __init__(self, labs: pd.DataFrame, procs: pd.DataFrame, notes: pd.DataFrame | None, sex_by_person: dict | None = None):
         self.labs = normalize_labs(labs, sex_by_person)
         procs = procs.copy()
         procs["procedure_date"] = pd.to_datetime(procs["procedure_date"])
-        notes = notes.copy()
-        notes["note_date"] = pd.to_datetime(notes["note_date"])
-        self.procs, self.notes = procs, notes
+        self.procs = procs
         self._labs = self._index(self.labs, "measured_at")
         self._procs = self._index(procs, "procedure_date")
+        self._set_notes(notes)
+
+    def _set_notes(self, notes: pd.DataFrame | None) -> None:
+        if notes is None:
+            self.notes, self._notes = None, {}
+            return
+        notes = notes.copy()
+        notes["note_date"] = pd.to_datetime(notes["note_date"])
+        self.notes = notes
         self._notes = self._index(notes, "note_date")
+
+    def with_notes(self, notes: pd.DataFrame | None) -> "Evidence":
+        """The same labs and procedures with another set of notes (e.g. one patient bucket), without re-indexing."""
+        other = copy.copy(self)
+        other._set_notes(notes)
+        return other
 
     @staticmethod
     def _index(df: pd.DataFrame, col: str) -> dict:

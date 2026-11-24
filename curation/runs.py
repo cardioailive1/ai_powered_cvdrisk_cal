@@ -22,10 +22,11 @@ from training import labeling
 from training.imaging_nlp import extract_cac, extract_lvef
 from training.nlp import highlight_segments
 
-from . import governance
+from . import governance, notes_store
 from .store import AuditReport, LabelRun, active_run, log_event
 
 RAW_FILES = ["features", "candidate_codes", "evidence_procedures", "evidence_labs", "event_notes", "baseline_imaging_notes"]
+NOTE_FILES = ("event_notes", "baseline_imaging_notes")   # too large to load whole on MCP: read in parts (notes_store)
 DISPLAY_WINDOW = {"ami": (-2, 7), "stroke": (-2, 7), "hf": (-3, 14), "scd": (-1, 7), "af": (-30, 30)}
 
 
@@ -33,22 +34,101 @@ def raw_dir(data_dir) -> Path:
     return Path(data_dir) / "raw"
 
 
+_SHA_CACHE = ".sha256.json"
+
+
+def _file_sha(path: Path) -> str:
+    """sha256 of a raw file, remembered next to it by size and modification time (event_notes is ~31 GB on MCP:
+    hashing it on every check would take minutes)."""
+    st = path.stat()
+    key = f"{path.name}:{st.st_size}:{st.st_mtime_ns}"
+    cache_path = path.parent / _SHA_CACHE
+    try:
+        cache = json.loads(cache_path.read_text())
+    except (OSError, ValueError):
+        cache = {}
+    if key not in cache:
+        cache = {k: v for k, v in cache.items() if not k.startswith(path.name + ":")}
+        cache[key] = sha256_file(path)
+        try:
+            cache_path.write_text(json.dumps(cache, indent=1))
+        except OSError:
+            pass
+    return cache[key]
+
+
 def inputs_sha(data_dir) -> str:
     h = hashlib.sha256()
     for name in RAW_FILES:
-        h.update(f"{name}:{sha256_file(raw_dir(data_dir) / f'{name}.parquet')}".encode())
+        h.update(f"{name}:{_file_sha(raw_dir(data_dir) / f'{name}.parquet')}".encode())
     return h.hexdigest()
 
 
-def load_raw(data_dir) -> dict[str, pd.DataFrame]:
+def load_raw(data_dir, include_notes: bool = False) -> dict[str, pd.DataFrame]:
+    """The raw tables. The two note tables are left out unless include_notes (small data only): use
+    notes_store / baseline_annotation, which read them in parts."""
     missing = [n for n in RAW_FILES if not (raw_dir(data_dir) / f"{n}.parquet").exists()]
     if missing:
         raise FileNotFoundError(f"Missing raw files in {raw_dir(data_dir)}: {', '.join(missing)} — run training.extract first")
-    return {n: pd.read_parquet(raw_dir(data_dir) / f"{n}.parquet") for n in RAW_FILES}
+    return {n: pd.read_parquet(raw_dir(data_dir) / f"{n}.parquet") for n in RAW_FILES
+            if include_notes or n not in NOTE_FILES}
+
+
+def baseline_annotation(data_dir) -> pd.DataFrame:
+    """Per baseline imaging report: note_id, whether it mentions LVEF / CAC, and whether a value was extracted.
+    Read in batches (4 GB of report text on MCP); saved next to the raw files and redone only if they change."""
+    import pyarrow.parquet as pq
+    from training.imaging_nlp import imaging_keywords
+    src = raw_dir(data_dir) / "baseline_imaging_notes.parquet"
+    out = raw_dir(data_dir) / ".baseline_annotation.parquet"
+    stamp = f"{_file_sha(src)}"
+    if out.exists():
+        old = pq.ParquetFile(out).schema_arrow.metadata or {}
+        if old.get(b"source_sha", b"").decode() == stamp:
+            return pd.read_parquet(out)
+    parts = []
+    for b in pq.ParquetFile(src).iter_batches(batch_size=50_000, columns=["note_id", "note_text"]):
+        df = b.to_pandas()
+        kw_ef, kw_cac = imaging_keywords(df["note_text"])
+        parts.append(pd.DataFrame({"note_id": df["note_id"].astype(str), "kw_ef": kw_ef, "kw_cac": kw_cac,
+                                   "lvef": df["note_text"].map(extract_lvef).astype(float),
+                                   "cac": df["note_text"].map(extract_cac).astype(float)}))
+    cols = {"note_id": pd.Series(dtype=str), "kw_ef": pd.Series(dtype=bool), "kw_cac": pd.Series(dtype=bool),
+            "lvef": pd.Series(dtype=float), "cac": pd.Series(dtype=float)}
+    res = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(cols)
+    import pyarrow as pa
+    t = pa.Table.from_pandas(res, preserve_index=False)
+    t = t.replace_schema_metadata({**(t.schema.metadata or {}), b"source_sha": stamp.encode()})
+    pq.write_table(t, out)
+    return res
+
+
+def save_annotation_notes(db: Session, data_dir, run: LabelRun) -> None:
+    """Keep the text of the reports sampled for annotation review with the label run, so the workbench never
+    loads every baseline report (4 GB on MCP)."""
+    from .store import Case
+    ids = list(db.scalars(select(Case.ref_id).where(Case.label_run_id == run.id, Case.case_type == "annotation")))
+    if ids:
+        baseline_notes_by_id(data_dir, ids).to_parquet(Path(run.path) / "annotation_notes.parquet", index=False)
+
+
+def baseline_notes_by_id(data_dir, note_ids) -> pd.DataFrame:
+    """Full text of these baseline imaging reports (one scan of the file, keeping only these rows)."""
+    import pyarrow.parquet as pq
+    ids = sorted({str(n) for n in note_ids})
+    t = pq.read_table(raw_dir(data_dir) / "baseline_imaging_notes.parquet", filters=[("note_id", "in", ids)])
+    df = t.to_pandas()
+    df["note_id"] = df["note_id"].astype(str)
+    return df
 
 
 def is_synthetic(data_dir) -> bool:
     return (raw_dir(data_dir) / "SYNTHETIC").exists()
+
+
+def log_progress(msg: str) -> None:
+    import logging
+    logging.getLogger("cardioai.curation").info(msg)
 
 
 def _new_id(prefix: str) -> str:
@@ -71,9 +151,27 @@ def create_label_run(db: Session, data_dir, username: str, label_model_path: str
     model["thresholds"] = gov["label_thresholds"]
     raw = load_raw(data_dir)
     cands = labeling.build_episodes(raw["candidate_codes"], raw["evidence_procedures"], raw["features"])
-    ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], raw["event_notes"],
+    ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], None,
                            dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
-    labels = labeling.mark_relevance(labeling.label_candidates(cands, ev, raw["features"], model), gov["definitions"])
+    # notes are read one patient bucket at a time (13.5 M notes on MCP); every candidate is labelled exactly once,
+    # with all of its patient's notes, so the result is the same as labelling everything at once
+    notes_store.ensure(raw_dir(data_dir))
+    bucket = cands["person_id"].astype("int64") % notes_store.NOTE_BUCKETS
+    parts = []
+    for k in range(notes_store.NOTE_BUCKETS):
+        mine = cands[bucket == k]
+        if len(mine):
+            parts.append(labeling.label_candidates(mine, ev.with_notes(notes_store.read_bucket(raw_dir(data_dir), k)),
+                                                   raw["features"], model).set_index(mine.index))
+        if (k + 1) % 8 == 0:
+            log_progress(f"labelled patient bucket {k + 1} / {notes_store.NOTE_BUCKETS}")
+    if parts:
+        labelled = pd.concat(parts).loc[cands.index].reset_index(drop=True)
+        lf_cols = [c for c in labelled.columns if c.startswith("lf_")]     # a bucket may lack a family's votes
+        labelled[lf_cols] = labelled[lf_cols].fillna(0).astype("int8")
+    else:
+        labelled = labeling.label_candidates(cands, ev, raw["features"], model)
+    labels = labeling.mark_relevance(labelled, gov["definitions"])
 
     run_id = _new_id("LR")
     out = Path(data_dir) / "label_runs" / run_id
@@ -112,8 +210,9 @@ def run_audit(db: Session, data_dir, run: LabelRun, username: str) -> AuditRepor
     gov = governance.load(data_dir)
     raw = load_raw(data_dir)
     labels = pd.read_parquet(Path(run.path) / "labels.parquet")
-    counts = {k: int(len(raw[k])) for k in ["evidence_labs", "evidence_procedures", "event_notes"]}
-    rep = audit_mod.run_audit(raw["features"], labels, counts, raw["baseline_imaging_notes"], gov)
+    counts = {k: int(len(raw[k])) for k in ["evidence_labs", "evidence_procedures"]}
+    counts["event_notes"] = notes_store.note_count(raw_dir(data_dir))
+    rep = audit_mod.run_audit(raw["features"], labels, counts, baseline_annotation(data_dir), gov)
     rep["label_run_id"] = run.id
     rep["inputs_sha"] = run.inputs_sha
     blob = json.dumps(rep, sort_keys=True, default=str)
@@ -175,11 +274,37 @@ class _RunData:
         codes = raw["candidate_codes"].copy()
         codes["event_date"] = pd.to_datetime(codes["event_date"])
         self.codes = {k: v.sort_values("event_date") for k, v in codes.groupby(["person_id", "family"])}
-        self.ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], raw["event_notes"],
+        self.ev = labeling.Evidence(raw["evidence_labs"], raw["evidence_procedures"], None,
                                     dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
-        bn = raw["baseline_imaging_notes"].copy()
-        bn["note_id"] = bn["note_id"].astype(str)
-        self.baseline_notes = bn.set_index("note_id")
+        self.run_path = Path(run_path)
+        self._bn = None
+
+    def _person_notes(self, pid):
+        """One patient's notes as a time-sorted index (read from the per-patient note store)."""
+        if not hasattr(self, "_note_cache"):
+            self._note_cache = {}
+        if pid not in self._note_cache:
+            if len(self._note_cache) > 256:
+                self._note_cache.clear()
+            df = notes_store.notes_for(raw_dir(self.data_dir), [pid])
+            df["note_date"] = pd.to_datetime(df["note_date"])
+            self._note_cache[pid] = labeling.Evidence._index(df, "note_date").get(pid)
+        return self._note_cache[pid]
+
+    def all_baseline_note_ids(self) -> list[str]:
+        ids = pd.read_parquet(raw_dir(self.data_dir) / "baseline_imaging_notes.parquet", columns=["note_id"])["note_id"]
+        return ids.astype(str).tolist()
+
+    @property
+    def baseline_notes(self) -> pd.DataFrame:
+        """Baseline imaging reports by note_id: the reports sampled for annotation review once the sample exists
+        (saved with the label run), else the whole file (small data, e.g. the training kit)."""
+        if self._bn is None:
+            p = self.run_path / "annotation_notes.parquet"
+            bn = pd.read_parquet(p) if p.exists() else pd.read_parquet(raw_dir(self.data_dir) / "baseline_imaging_notes.parquet")
+            bn["note_id"] = bn["note_id"].astype(str)
+            self._bn = bn.set_index("note_id")
+        return self._bn
 
     # ---- event packet (BLINDED: no auto label, probability, votes or stratum)
     def event_packet(self, candidate_id: str) -> dict:
@@ -221,7 +346,7 @@ class _RunData:
         keys = labeling.MENTION_KEYS[fam]
         notes_w = (w[0], 30) if fam == "hf" else w
         notes = []
-        for x in self.ev.notes_for(pid, d, notes_w):
+        for x in labeling._window(self._person_notes(pid), d, notes_w):
             txt = x["note_text"] or ""
             notes.append({"note_id": str(x["note_id"]), "date": pd.Timestamp(x["note_date"]).date().isoformat(),
                           "day": (pd.Timestamp(x["note_date"]) - d).days, "title": x.get("note_title") or "Note",
@@ -242,7 +367,11 @@ class _RunData:
 
     # ---- annotation packet (shows the extracted values: the task is to verify them)
     def annotation_packet(self, note_id: str) -> dict:
-        n = self.baseline_notes.loc[str(note_id)]
+        bn = self.baseline_notes
+        if str(note_id) not in bn.index:               # sampled after this cache was built
+            self._bn = None
+            bn = self.baseline_notes
+        n = bn.loc[str(note_id)]
         txt = n["note_text"]
         return {"note_id": str(note_id), "date": pd.Timestamp(n["note_date"]).date().isoformat(), "text": txt,
                 "extracted": {"lvef": extract_lvef(txt), "cac_score": extract_cac(txt)}}

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from . import gates as gates_mod
 from . import governance
 from .adjudication import create_sample, metrics
-from .runs import audit_problem, get_run_data, latest_audit, load_raw
+from .runs import audit_problem, baseline_annotation, get_run_data, latest_audit, save_annotation_notes
 from .store import Approval, Case, LabelRun, Review, User, log_event
 
 
@@ -100,9 +100,9 @@ def approve(db: Session, data_dir, run: LabelRun, user: User, stage: str, decisi
         log_event(db, user.username, f"approval.{stage}", run.id, {"decision": decision, "comment": comment})
         if stage == "ds_dataset_review" and decision == "approve":
             rd = get_run_data(data_dir, run)
-            raw = load_raw(data_dir)
-            result["sample"] = create_sample(db, run, rd.labels, raw["baseline_imaging_notes"], governance.load(data_dir),
+            result["sample"] = create_sample(db, run, rd.labels, baseline_annotation(data_dir), governance.load(data_dir),
                                              user.username, commit=False)
+            save_annotation_notes(db, data_dir, run)
         db.commit()
     except Exception:
         db.rollback()
