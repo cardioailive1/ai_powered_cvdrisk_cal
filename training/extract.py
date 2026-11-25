@@ -103,7 +103,7 @@ def _codeset_concepts(C: str, rows: list[tuple], name_col: str) -> str:
 
 def render_sql(cdm: str, index_start: str, index_end: str, lookback_days: int = 730) -> dict[str, str]:
     C = cdm
-    lipid_codes = "'2093-3', '2085-8'"
+    lipid_codes = "'2093-3'"     # I4 lipid panel = a total cholesterol result (every lipid panel reports it)
     outpatient = ", ".join(map(str, cs.OUTPATIENT_VISITS))
     # cast: OMOP birth fields may be BIGINT; Spark make_date/date_add require INT
     dob = ("date_add(make_date(cast(p.year_of_birth AS INT), cast(coalesce(p.month_of_birth, 7) AS INT), 1), "
@@ -113,7 +113,7 @@ def render_sql(cdm: str, index_start: str, index_end: str, lookback_days: int = 
     sexes = ", ".join(map(str, cs.GENDER))
     # The cohort is built in three steps; the first two are saved (cvd_visits, cvd_screened) and reused, so the
     # big scans of visit_occurrence and measurement run once, not once per query.
-    # I3 (lipid panel in the 365 days before the visit): instead of joining every visit to every lipid result in a
+    # I4 (lipid panel in the 365 days before the visit): instead of joining every visit to every lipid result in a
     # date range (very slow on BigQuery), visits and lipid dates are put in one date-ordered list per person and each
     # visit takes the latest lipid date on or before it (same-day lipids count); kept if it is within 365 days.
     sql["00a_visits"] = f"""-- Outpatient visits in the index window with >= 1 year of prior observation and a lipid panel in the
@@ -205,19 +205,19 @@ FROM cvd_screened
 WHERE sex_ok AND alive_at_index AND has_followup
 """
 
-    loinc_rows = [(code, feat) for feat, codes in cs.LOINC.items() for code in codes]
+    loinc_rows = [(voc, code, feat) for feat in cs.LOINC for voc, code in cs.measurement_codes(feat)]
     sql["02_measurements"] = f"""-- Latest baseline lab / vital per feature in the look-back window (units harmonised in Python)
-WITH loinc_map AS {_values(loinc_rows, ('code', 'feature'))},
+WITH loinc_map AS {_values(loinc_rows, ('vocab', 'code', 'feature'))},
 ranked AS (
   SELECT co.person_id, lm.feature, m.value_as_number AS value,
-         coalesce(u.concept_code, m.unit_source_value) AS unit,
+         CASE WHEN coalesce(m.unit_concept_id, 0) = 0 THEN m.unit_source_value ELSE u.concept_code END AS unit,
          ROW_NUMBER() OVER (PARTITION BY co.person_id, lm.feature ORDER BY m.measurement_date DESC, m.measurement_id DESC) AS rn
   FROM cvd_cohort co
   JOIN {C}.measurement m
     ON m.person_id = co.person_id
    AND m.measurement_date BETWEEN date_sub(co.index_date, {lookback_days}) AND co.index_date
-  JOIN {C}.concept c ON c.concept_id = m.measurement_concept_id AND c.vocabulary_id = 'LOINC'
-  JOIN loinc_map lm ON lm.code = c.concept_code
+  JOIN {C}.concept c ON c.concept_id = m.measurement_concept_id
+  JOIN loinc_map lm ON lm.vocab = c.vocabulary_id AND lm.code = c.concept_code
   LEFT JOIN {C}.concept u ON u.concept_id = m.unit_concept_id
   WHERE m.value_as_number IS NOT NULL
 )
@@ -520,14 +520,24 @@ def merge_notes(*frames: pd.DataFrame) -> pd.DataFrame:
 _TO_MGDL = {"total_chol": 38.67, "hdl": 38.67, "ldl": 38.67, "trig": 88.57, "glucose": 18.0}
 
 
+_INCH = {"[in_i]", "in", "inch", "inches", "[in_us]"}
+_KNOWN_HEIGHT = _INCH | {"m", "cm"}
+
+
 def _harmonize(feature: str, value: float, unit: str | None) -> float:
     u = unit.lower().replace(" ", "") if isinstance(unit, str) else ""      # a missing unit comes back as NaN
-    if feature == "height_cm" and u in {"[in_i]", "in", "inch", "inches", "[in_us]"}:
-        return value * 2.54
-    if feature == "height_cm" and u in {"m"}:
-        return value * 100
+    if feature == "height_cm":
+        if u in _INCH:
+            return value * 2.54
+        if u == "m" or (0.5 < value < 2.6):          # metres; on MCP even some rows labelled cm hold 1.68
+            return value * 100
+        if u not in _KNOWN_HEIGHT and 48 <= value <= 90:   # unlabelled adult height in inches
+            return value * 2.54
+        return value
     if feature == "weight_kg" and u in {"[lb_av]", "lb", "lbs", "pound", "pounds"}:
         return value * 0.453592
+    if feature == "weight_kg" and u in {"[oz_av]", "oz", "ounce", "ounces"}:   # Epic flowsheets store weight in ounces
+        return value * 0.0283495
     if feature == "weight_kg" and u in {"g"}:
         return value / 1000
     if feature in _TO_MGDL and u in {"mmol/l", "mmol/liter"}:

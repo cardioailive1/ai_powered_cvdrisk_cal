@@ -52,20 +52,26 @@ DRUGS = {
 # Baseline labs & vitals (features): LOINC -> feature, latest value in look-back
 # ----------------------------------------------------------------------------
 LOINC = {
-    "height_cm": ["8302-2", "3137-7"],
+    "height_cm": ["8302-2", "3137-7", "SNOMED:14456009"],   # MCP: height is mostly SNOMED "Measuring height of patient", in metres
     "weight_kg": ["29463-7", "3141-9"],
     "bmi": ["39156-5"],
     "sbp": ["8480-6", "8459-0"],
     "dbp": ["8462-4", "8453-3"],
     "total_chol": ["2093-3"],
-    "hdl": ["2085-8"],
+    "hdl": ["2085-9"],
     "ldl": ["13457-7", "18262-6", "2089-1"],
     "trig": ["2571-8"],
     "glucose": ["1558-6", "2345-7"],
     "hba1c": ["4548-4", "17856-6"],
-    "hscrp": ["30522-7", "1988-5"],
+    "hscrp": ["30522-7"],          # high-sensitivity assay only: 1988-5 is standard CRP, often drawn in acute illness
     "egfr": ["33914-3", "62238-1", "98979-8", "48642-3", "48643-1"],
 }
+
+
+
+def measurement_codes(feature: str) -> list[tuple[str, str]]:
+    """(vocabulary, code) for a baseline feature: plain codes are LOINC, 'SNOMED:<code>' is SNOMED."""
+    return [tuple(c.split(":", 1)) if ":" in c else ("LOINC", c) for c in LOINC[feature]]
 
 # ----------------------------------------------------------------------------
 # Adjudication evidence — biomarkers after index (verify assay codes locally)

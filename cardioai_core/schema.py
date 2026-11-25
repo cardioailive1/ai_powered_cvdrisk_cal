@@ -31,7 +31,7 @@ ELIGIBILITY: dict[str, Any] = {
         {"id": "I2", "criterion": f"An outpatient visit between {INDEX_WINDOW[0]} and {INDEX_WINDOW[1]} (one index visit per patient, "
                                   "chosen at random among eligible visits)", "applies_to": "all", "where": "cohort SQL"},
         {"id": "I3", "criterion": "At least 365 days of observation before the index visit", "applies_to": "all", "where": "cohort SQL"},
-        {"id": "I4", "criterion": "Total cholesterol or HDL cholesterol measured in the 365 days before the index visit",
+        {"id": "I4", "criterion": "Total cholesterol measured (a lipid panel) in the 365 days before the index visit",
          "applies_to": "all", "where": "cohort SQL"},
         {"id": "I5", "criterion": "Recorded sex male or female (the models and published equations are sex-specific)",
          "applies_to": "all", "where": "cohort SQL; API validation"},

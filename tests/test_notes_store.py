@@ -145,3 +145,29 @@ def test_label_resumes_after_stop(data, monkeypatch):
     again = runs.label_by_bucket(data, raw, model)
     assert len(seen) == 3                                       # buckets 3-5 only; 1-2 kept from the stopped run
     assert _norm(again, list(full.columns)).equals(_norm(full, list(full.columns)))
+
+
+def test_parallel_labels_same(data, monkeypatch):
+    """Labelling buckets in worker processes gives the same labels as one at a time."""
+    import shutil
+    monkeypatch.setattr(notes_store, "NOTE_BUCKETS", 6)
+    gov = governance.load(data)
+    model = labeling.DEFAULT_LABEL_MODEL | {"thresholds": gov["label_thresholds"]}
+    raw = runs.load_raw(data)
+    one = runs.label_by_bucket(data, raw, model, workers=1)
+    shutil.rmtree(data / "label_work")
+    many = runs.label_by_bucket(data, raw, model, workers=3)
+    cols = list(one.columns)
+    assert _norm(many, cols).equals(_norm(one, cols))
+
+
+def test_feature_fix_keeps_label_work(data, monkeypatch):
+    """Fixing a baseline feature labelling never reads (e.g. weight units) keeps finished label work."""
+    monkeypatch.setattr(notes_store, "NOTE_BUCKETS", 6)
+    raw = runs.load_raw(data)
+    model = labeling.DEFAULT_LABEL_MODEL
+    k1 = runs.label_work_key(data, raw, model, 6)
+    raw2 = dict(raw, features=raw["features"].assign(weight_kg=raw["features"]["weight_kg"] * 0.0283495))
+    assert runs.label_work_key(data, raw2, model, 6) == k1
+    raw3 = dict(raw, features=raw["features"].assign(age=raw["features"]["age"] + 1))
+    assert runs.label_work_key(data, raw3, model, 6) != k1

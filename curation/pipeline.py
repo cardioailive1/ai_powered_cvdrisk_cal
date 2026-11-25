@@ -95,7 +95,7 @@ def cmd_user_add(a):
 
 def cmd_label(a):
     db = _db(a.data_dir)
-    run = create_label_run(db, a.data_dir, _sysuser(), a.label_model)
+    run = create_label_run(db, a.data_dir, _sysuser(), a.label_model, a.workers)
     print(json.dumps({"label_run": run.id, **run.summary}, indent=2, default=str))
     _print_audit(latest_audit(db, run.id))
 
@@ -259,6 +259,7 @@ def main():
     p = sub.add_parser("label")
     p.add_argument("--label-model", help="JSON label model (default: expert-v2)")
     p.set_defaults(fn=cmd_label)
+    p.add_argument("--workers", type=int, default=1, help="patient buckets labelled in parallel (e.g. 4; each needs ~3 GB)")
     sub.add_parser("audit").set_defaults(fn=cmd_audit)
     sub.add_parser("status").set_defaults(fn=cmd_status)
     p = sub.add_parser("plan-workload", help="estimate reads and hours per cardiologist for the active label run")
