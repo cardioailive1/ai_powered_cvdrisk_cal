@@ -60,14 +60,14 @@ def build_omop(raw: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
                 continue
             meas.append({"measurement_id": mid, "person_id": r["person_id"], "measurement_concept_id": C.id("LOINC", cs.LOINC[feat][0]),
                          "measurement_date": d, "measurement_datetime": pd.Timestamp(d), "value_as_number": float(v),
-                         "unit_concept_id": UNIT_CONCEPTS[unit], "unit_source_value": unit, "range_high": None})
+                         "unit_concept_id": UNIT_CONCEPTS[unit], "unit_source_value": unit, "value_source_value": str(r[feat]), "range_high": None})
             mid += 1
     lab_code = {a: codes[0] for a, codes in cs.EVIDENCE_LOINC.items()}
     for r in raw["evidence_labs"].to_dict("records"):
         t = pd.Timestamp(r["measured_at"])
         meas.append({"measurement_id": mid, "person_id": r["person_id"], "measurement_concept_id": C.id("LOINC", lab_code[r["analyte"]]),
                      "measurement_date": t.date(), "measurement_datetime": t, "value_as_number": float(r["value"]),
-                     "unit_concept_id": UNIT_CONCEPTS.get(r["unit"].replace("pg/mL", "pg/mL"), 0), "unit_source_value": r["unit"],
+                     "unit_concept_id": UNIT_CONCEPTS.get(r["unit"].replace("pg/mL", "pg/mL"), 0), "unit_source_value": r["unit"], "value_source_value": str(r["value"]),
                      "range_high": None if pd.isna(r["range_high"]) else float(r["range_high"])})
         mid += 1
 

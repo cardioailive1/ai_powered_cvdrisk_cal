@@ -211,6 +211,7 @@ WITH loinc_map AS {_values(loinc_rows, ('vocab', 'code', 'feature'))},
 ranked AS (
   SELECT co.person_id, lm.feature, m.value_as_number AS value,
          CASE WHEN coalesce(m.unit_concept_id, 0) = 0 THEN m.unit_source_value ELSE u.concept_code END AS unit,
+         m.value_source_value AS value_text,
          ROW_NUMBER() OVER (PARTITION BY co.person_id, lm.feature ORDER BY m.measurement_date DESC, m.measurement_id DESC) AS rn
   FROM cvd_cohort co
   JOIN {C}.measurement m
@@ -220,8 +221,10 @@ ranked AS (
   JOIN loinc_map lm ON lm.vocab = c.vocabulary_id AND lm.code = c.concept_code
   LEFT JOIN {C}.concept u ON u.concept_id = m.unit_concept_id
   WHERE m.value_as_number IS NOT NULL
+    -- censored values ('<=1.53' on MCP's SNOMED height rows) are not measurements: skip, so an earlier real one is used
+    AND NOT (lm.feature = 'height_cm' AND substr(trim(coalesce(m.value_source_value, '')), 1, 1) IN ('<', '>'))
 )
-SELECT person_id, feature, value, unit FROM ranked WHERE rn = 1
+SELECT person_id, feature, value, unit, value_text FROM ranked WHERE rn = 1
 """
 
     sql["03_history"] = f"""-- Diagnosis history on or before index (conditions + observation-domain Z codes)
@@ -477,6 +480,24 @@ def read_in_batches(path: Path, columns: list[str], rows: int | None = None):
         yield b.to_pandas()
 
 
+def cached_imaging_values(img_path: Path) -> pd.DataFrame:
+    """CAC / LVEF values per imaging report, parsed once per version of the imaging-notes file (about 20 minutes on
+    MCP's 1.1 M reports) and kept next to it."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    st = img_path.stat()
+    stamp = f"{st.st_size}:{st.st_mtime_ns}".encode()
+    cache = img_path.with_name(".imaging_values.parquet")
+    if cache.exists() and (pq.ParquetFile(cache).schema_arrow.metadata or {}).get(b"source") == stamp:
+        return pd.read_parquet(cache)
+    parts = [imaging_values(b) for b in read_in_batches(img_path, ["person_id", "note_date", "note_text"])]
+    vals = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(
+        columns=["person_id", "note_date", "cac_score", "lvef"])
+    t = pa.Table.from_pandas(vals, preserve_index=False)
+    pq.write_table(t.replace_schema_metadata({**(t.schema.metadata or {}), b"source": stamp}), cache)
+    return vals
+
+
 class NoteWriter:
     """Appends note slices to one parquet file: same file, columns and types as writing the whole table at once."""
 
@@ -524,9 +545,19 @@ _INCH = {"[in_i]", "in", "inch", "inches", "[in_us]"}
 _KNOWN_HEIGHT = _INCH | {"m", "cm"}
 
 
-def _harmonize(feature: str, value: float, unit: str | None) -> float:
+def _num(text) -> float | None:
+    try:
+        return float(str(text).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _harmonize(feature: str, value: float, unit: str | None, text: str | None = None) -> float:
     u = unit.lower().replace(" ", "") if isinstance(unit, str) else ""      # a missing unit comes back as NaN
     if feature == "height_cm":
+        t = _num(text)
+        if t is not None and 0.5 < t < 2.6:          # MCP SNOMED height: text '1.68' (metres), unit 'cm', value 0.0168
+            return t * 100
         if u in _INCH:
             return value * 2.54
         if u == "m" or (0.5 < value < 2.6):          # metres; on MCP even some rows labelled cm hold 1.68
@@ -561,7 +592,8 @@ def assemble_features(cohort: pd.DataFrame, meas: pd.DataFrame, hist: pd.DataFra
 
     if len(meas):
         meas = meas.copy()
-        meas["value"] = [_harmonize(f, v, u) for f, v, u in zip(meas["feature"], meas["value"], meas["unit"])]
+        text = meas["value_text"] if "value_text" in meas else [None] * len(meas)
+        meas["value"] = [_harmonize(f, v, u, t) for f, v, u, t in zip(meas["feature"], meas["value"], meas["unit"], text)]
         wide = meas.pivot_table(index="person_id", columns="feature", values="value", aggfunc="first")
         df = df.join(wide, how="left")
     for f in cs.LOINC:
@@ -697,10 +729,12 @@ def run_extract(spark, a) -> Path:
     imaging_parts = []
     img_path = out / "baseline_imaging_notes.parquet"
     img_names = ["06_baseline_imaging_notes"] + (["10_echo_notes_baseline"] if a.native_dataset else [])
-    done = a.resume and finished(img_path)
+    if getattr(a, "features_only", False) and not finished(img_path):
+        raise SystemExit(f"--features-only needs {img_path} from an earlier full extraction")
+    done = (a.resume or getattr(a, "features_only", False)) and finished(img_path)
     if done:                                  # --resume: reuse the imaging notes of an earlier run
-        log.info("Resuming: %s already written, parsing it instead of downloading again", img_path.name)
-        imaging_parts = [imaging_values(b) for b in read_in_batches(img_path, ["person_id", "note_date", "note_text"])]
+        log.info("Resuming: %s already written, reusing it instead of downloading again", img_path.name)
+        imaging_parts = [cached_imaging_values(img_path)]
     img_writer = None if done else NoteWriter(img_path)
     for frames in ([] if done else notes_by_slice(img_names)):
         frames[0]["note_title"] = "Imaging report"         # added after note_text, as before
@@ -716,6 +750,10 @@ def run_extract(spark, a) -> Path:
     parsed = latest_imaging(pd.concat(imaging_parts)) if imaging_parts else None
     feats = assemble_features(cohort, q("02_measurements"), q("03_history"), q("04_drugs"), None, imaging_parsed=parsed)
     feats.to_parquet(out / "features.parquet", index=False)
+    if getattr(a, "features_only", False):
+        log.info("Features rebuilt (--features-only): %d patients -> %s; candidate, evidence and note files kept",
+                 len(feats), out / "features.parquet")
+        return out
 
     def keep(df: pd.DataFrame) -> pd.DataFrame:      # drop rows of patients removed after the SQL (exclusion E4)
         return df[df["person_id"].isin(feats["person_id"])].reset_index(drop=True)
@@ -759,6 +797,9 @@ def parse_args(argv=None):
     ap.add_argument("--render-only", action="store_true", help="write SQL to training/sql/ and exit (no data access)")
     ap.add_argument("--note-chunks", type=int, default=20,
                     help="note tables are downloaded this many slices of patients at a time (raise it if memory runs out)")
+    ap.add_argument("--features-only", action="store_true",
+                    help="rebuild features.parquet only (cohort + baseline queries); keep the candidate, evidence and "
+                         "note files of an earlier full extraction, so finished labelling work is reused")
     ap.add_argument("--resume", action="store_true",
                     help="keep note files a stopped run already finished in --out (the cohort is rebuilt; it is quick)")
     ap.add_argument("--out", default="data/raw")

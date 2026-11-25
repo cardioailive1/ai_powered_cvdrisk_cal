@@ -275,3 +275,32 @@ def test_baseline_codes():
     assert ("SNOMED", "14456009") in cs.measurement_codes("height_cm")
     sql = extract.render_sql("__CDM__", "2012-01-01", "2019-12-31")["02_measurements"]
     assert "lm.vocab = c.vocabulary_id" in sql and "unit_source_value ELSE u.concept_code" in sql
+
+
+def test_height_from_source_text():
+    """MCP SNOMED height rows: value_source_value '1.68' (metres), unit 'cm', value_as_number 0.0168; censored
+    '<=1.53' rows are skipped in SQL."""
+    h = extract._harmonize
+    assert h("height_cm", 0.0168, "cm", "1.68") == 168.0
+    assert h("height_cm", 170.0, "cm", None) == 170.0
+    sql = extract.render_sql("__CDM__", "2012-01-01", "2019-12-31")["02_measurements"]
+    assert "IN ('<', '>')" in sql and "value_text" in sql
+
+
+def test_features_only_keeps_other_files(bq, tmp_path):
+    import shutil
+    raw = tmp_path / "raw"
+    shutil.copytree(Path(bq["cfg"]).parent / "raw", raw)
+    before = {p.name: p.stat().st_mtime_ns for p in raw.glob("*.parquet") if p.name != "features.parquet" and not p.name.startswith(".")}
+    a = extract.parse_args(["--engine", "bigquery", "--cdm", DATA, "--native-dataset", DATA, "--features-only",
+                            "--native-config", str(bq["cfg"]), "--out", str(raw)])
+    eng, a = extract.session(a, backend=bq["backend"])
+    extract.run_extract(eng, a)
+    after = {p.name: p.stat().st_mtime_ns for p in raw.glob("*.parquet") if p.name != "features.parquet" and not p.name.startswith(".")}
+    assert before == after                                            # candidate, evidence and note files untouched
+    k = list(bq["out"]["features"].columns)
+    f = pd.read_parquet(raw / "features.parquet")
+    norm = lambda d: d[k].astype(str).sort_values(k).reset_index(drop=True)   # noqa: E731
+    assert norm(f).equals(norm(bq["out"]["features"]))
+    extract.run_extract(eng, a)                                       # second time: imaging values from the cache
+    assert (raw / ".imaging_values.parquet").exists()
