@@ -145,40 +145,68 @@ AUDIT_REQUIRED = ("The automatic audit is a required step after automatic labell
                   "or cardiologist review.")
 
 
-def label_by_bucket(data_dir, raw: dict, model: dict) -> pd.DataFrame:
+LABEL_FEATURES = ["person_id", "index_date", "age", "sex", "death_days"]   # the only features labelling reads
+_W: dict = {}                   # worker state (set before forking; shared copy-on-write)
+
+
+def _label_bucket(k: int) -> int:
+    """Label one patient bucket and save it in the work folder (run in a worker process)."""
+    B, rd, work, tables, bucket, sex, model = (_W[x] for x in ("B", "rd", "work", "tables", "bucket", "sex", "model"))
+    sub = {n: df[bucket[n] == k] for n, df in tables.items()}
+    cands = labeling.build_episodes(sub["candidate_codes"], sub["evidence_procedures"], sub["features"])
+    part = pd.DataFrame()
+    if len(cands):
+        ev = labeling.Evidence(sub["evidence_labs"], sub["evidence_procedures"], notes_store.read_bucket(rd, k), sex)
+        part = labeling.label_candidates(cands, ev, sub["features"], model)
+    tmp = work / f"bucket={k:03d}.tmp.parquet"
+    part.to_parquet(tmp, index=False)
+    tmp.replace(work / f"bucket={k:03d}.parquet")
+    return k
+
+
+def label_work_key(data_dir, raw: dict, model: dict, B: int) -> str:
+    """What the labels depend on: the candidate, evidence and note files, the few feature columns labelling reads
+    (so fixing e.g. weight units keeps finished work), the label model and the bucket count."""
+    rd = raw_dir(data_dir)
+    files = {n: _file_sha(rd / f"{n}.parquet") for n in ("candidate_codes", "evidence_procedures", "evidence_labs", "event_notes")}
+    f = raw["features"][LABEL_FEATURES]
+    fhash = hashlib.sha256(pd.util.hash_pandas_object(f, index=False).to_numpy().tobytes()).hexdigest()
+    return hashlib.sha256(json.dumps({"files": files, "features": fhash, "model": model, "buckets": B},
+                                     sort_keys=True, default=str).encode()).hexdigest()[:16]
+
+
+def label_by_bucket(data_dir, raw: dict, model: dict, workers: int = 1) -> pd.DataFrame:
     """Candidate episodes and labelling functions, one patient bucket at a time (patient p -> p % NOTE_BUCKETS).
     Everything here is per patient, so the result equals labelling all patients at once; memory holds one
-    bucket's episodes, evidence index and notes (8 M codes, 3 M labs and 13.5 M notes on MCP)."""
+    bucket's episodes, evidence index and notes per worker (8 M codes, 3 M labs and 13.5 M notes on MCP).
+    Finished buckets are kept in data/label_work/<key>/, so a stopped run resumes where it stopped."""
     B = notes_store.NOTE_BUCKETS
     rd = raw_dir(data_dir)
     notes_store.ensure(rd)
-    sex = dict(zip(raw["features"]["person_id"], raw["features"]["sex"]))
     tables = {n: raw[n] for n in ("features", "candidate_codes", "evidence_procedures", "evidence_labs")}
-    bucket = {n: (df["person_id"].astype("int64") % B).to_numpy() for n, df in tables.items()}
-    # finished buckets are kept in data/label_work/<inputs + model>/ so a stopped run resumes where it stopped
-    key = hashlib.sha256(json.dumps({"inputs": inputs_sha(data_dir), "model": model, "buckets": B},
-                                    sort_keys=True, default=str).encode()).hexdigest()[:16]
-    work = Path(data_dir) / "label_work" / key
+    work = Path(data_dir) / "label_work" / label_work_key(data_dir, raw, model, B)
     work.mkdir(parents=True, exist_ok=True)
-    parts = []
-    for k in range(B):
-        done = work / f"bucket={k:03d}.parquet"
-        if done.exists():
-            part = pd.read_parquet(done)
-            if len(part):
-                parts.append(part)
-            log_progress(f"labelled patient bucket {k + 1} / {B} (kept from an earlier run)")
-            continue
-        sub = {n: df[bucket[n] == k] for n, df in tables.items()}
-        cands = labeling.build_episodes(sub["candidate_codes"], sub["evidence_procedures"], sub["features"])
-        part = pd.DataFrame()
-        if len(cands):
-            ev = labeling.Evidence(sub["evidence_labs"], sub["evidence_procedures"], notes_store.read_bucket(rd, k), sex)
-            part = labeling.label_candidates(cands, ev, sub["features"], model)
-            parts.append(part)
-        part.to_parquet(work.with_name(work.name + ".tmp.parquet"), index=False)
-        work.with_name(work.name + ".tmp.parquet").replace(done)
-        log_progress(f"labelled patient bucket {k + 1} / {B}")
+    _W.update(B=B, rd=rd, work=work, tables=tables, model=model,
+              bucket={n: (df["person_id"].astype("int64") % B).to_numpy() for n, df in tables.items()},
+              sex=dict(zip(raw["features"]["person_id"], raw["features"]["sex"])))
+    todo = [k for k in range(B) if not (work / f"bucket={k:03d}.parquet").exists()]
+    if len(todo) < B:
+        log_progress(f"kept {B - len(todo)} of {B} patient buckets from an earlier run")
+    done = B - len(todo)
+    if workers > 1 and len(todo) > 1:
+        import multiprocessing as mp
+        with mp.get_context("fork").Pool(min(workers, len(todo)), maxtasksperchild=4) as pool:
+            for _ in pool.imap_unordered(_label_bucket, todo):
+                done += 1
+                log_progress(f"labelled patient bucket {done} / {B}")
+    else:
+        for k in todo:
+            _label_bucket(k)
+            done += 1
+            log_progress(f"labelled patient bucket {done} / {B}")
+    parts = [p for p in (pd.read_parquet(work / f"bucket={k:03d}.parquet") for k in range(B)) if len(p)]
+    sex = _W["sex"]
+    _W.clear()
     if not parts:
         return labeling.label_candidates(labeling.build_episodes(raw["candidate_codes"], raw["evidence_procedures"],
                                                                  raw["features"]), labeling.Evidence(
@@ -189,13 +217,14 @@ def label_by_bucket(data_dir, raw: dict, model: dict) -> pd.DataFrame:
     return out.sort_values(["person_id", "family", "event_date"], kind="stable").reset_index(drop=True)
 
 
-def create_label_run(db: Session, data_dir, username: str, label_model_path: str | None = None) -> LabelRun:
+def create_label_run(db: Session, data_dir, username: str, label_model_path: str | None = None,
+                     workers: int = 1) -> LabelRun:
     """Automatic labelling, followed immediately by the required automatic audit (one step; it cannot be skipped)."""
     gov = governance.load(data_dir)
     model = json.loads(Path(label_model_path).read_text()) if label_model_path else json.loads(json.dumps(labeling.DEFAULT_LABEL_MODEL))
     model["thresholds"] = gov["label_thresholds"]
     raw = load_raw(data_dir)
-    labels_all = label_by_bucket(data_dir, raw, model)
+    labels_all = label_by_bucket(data_dir, raw, model, workers)
     labels = labeling.mark_relevance(labels_all, gov["definitions"])
 
     run_id = _new_id("LR")

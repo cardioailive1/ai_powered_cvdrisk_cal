@@ -141,7 +141,8 @@ LOINC_NAMES = {
     "8302-2": "Body height", "3137-7": "Body height Measured", "29463-7": "Body weight", "3141-9": "Body weight Measured",
     "39156-5": "Body mass index (BMI) [Ratio]", "8480-6": "Systolic blood pressure", "8459-0": "Systolic blood pressure--sitting",
     "8462-4": "Diastolic blood pressure", "8453-3": "Diastolic blood pressure--sitting",
-    "2093-3": "Cholesterol [Mass/volume] in Serum or Plasma", "2085-8": "Cholesterol in HDL [Mass/volume] in Serum or Plasma",
+    "2093-3": "Cholesterol [Mass/volume] in Serum or Plasma", "2085-9": "Cholesterol in HDL [Mass/volume] in Serum or Plasma",
+    "14456009": "Measuring height of patient (SNOMED)",
     "13457-7": "Cholesterol in LDL [Mass/volume] in Serum or Plasma by calculation",
     "18262-6": "Cholesterol in LDL [Mass/volume] in Serum or Plasma by Direct assay",
     "2089-1": "Cholesterol in LDL [Mass/volume] in Serum or Plasma", "2571-8": "Triglyceride [Mass/volume] in Serum or Plasma",
@@ -200,16 +201,15 @@ i0, i1 = INDEX_WINDOW if isinstance(INDEX_WINDOW, (tuple, list)) else ("2012-01-
 
 # ---- Labs & vitals
 labs = []
-for feat, codes in cs.LOINC.items():
+for feat in cs.LOINC:
     f = FIELD.get(feat)
-    for c in codes:
-        labs.append([ALL5, f["label"] if f else "BMI", "Model input (baseline)", "LOINC", c, LOINC_NAMES.get(c, ""),
+    for voc, c in cs.measurement_codes(feat):
+        labs.append([ALL5, f["label"] if f else "BMI", "Model input (baseline)", voc, c, LOINC_NAMES.get(c, ""),
                      f.get("unit", "") if f else "kg/m²", "measurement", f"Latest value in the {lb} days up to and including index",
                      "BMI is also computed from height and weight" if feat == "bmi" else ""])
-for feat in ("total_chol", "hdl"):
-    for c in cs.LOINC[feat]:
-        labs.append([ALL5, FIELD[feat]["label"], "Eligibility (I4)", "LOINC", c, LOINC_NAMES.get(c, ""), "mg/dL", "measurement",
-                     "Any value in the 365 days before index", "Inclusion I4: total or HDL cholesterol measured"])
+for c in cs.LOINC["total_chol"]:
+    labs.append([ALL5, FIELD["total_chol"]["label"], "Eligibility (I3)", "LOINC", c, LOINC_NAMES.get(c, ""), "mg/dL", "measurement",
+                 "Any value in the 365 days before index", "Inclusion I3: lipid panel (total cholesterol) measured"])
 for feat, codes in cs.EVIDENCE_LOINC.items():
     label, fam = EVIDENCE_LABEL[feat]
     for c in codes:

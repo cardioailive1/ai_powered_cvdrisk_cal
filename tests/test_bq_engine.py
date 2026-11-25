@@ -252,3 +252,26 @@ def test_imaging_values_combine_across_batches():
     f = extract.assemble_features(cohort, empty, pd.DataFrame(columns=["person_id", "flag", "last_date"]),
                                   pd.DataFrame(columns=["person_id", "flag"]), None, imaging_parsed=out)
     assert f.set_index("person_id").loc[1, "lvef"] == 55 and pd.isna(f.set_index("person_id").loc[2, "lvef"])
+
+
+def test_mcp_units_harmonised():
+    """Units seen on MCP (aggregate query, 25 Nov 2026): weight in ounces, height in metres (some labelled cm),
+    unlabelled weight/height."""
+    h = extract._harmonize
+    assert abs(h("weight_kg", 2783.09, "Oz") - 78.9) < 0.1          # Epic flowsheet ounces
+    assert abs(h("weight_kg", 143.0, "[lb_av]") - 64.9) < 0.1
+    assert h("weight_kg", 79.8, "kg") == 79.8
+    assert h("height_cm", 1.53, "m") == 153.0
+    assert h("height_cm", 1.68, "cm") == 168.0                      # labelled cm, value in metres
+    assert h("height_cm", 1.67, None) == 167.0
+    assert abs(h("height_cm", 66.0, None) - 167.6) < 0.1           # unlabelled inches
+    assert h("height_cm", 170.0, "cm") == 170.0
+
+
+def test_baseline_codes():
+    from training import codesets as cs
+    assert cs.LOINC["hdl"] == ["2085-9"]                            # HDL cholesterol (2085-8 does not exist)
+    assert cs.LOINC["hscrp"] == ["30522-7"]                         # high-sensitivity only
+    assert ("SNOMED", "14456009") in cs.measurement_codes("height_cm")
+    sql = extract.render_sql("__CDM__", "2012-01-01", "2019-12-31")["02_measurements"]
+    assert "lm.vocab = c.vocabulary_id" in sql and "unit_source_value ELSE u.concept_code" in sql
