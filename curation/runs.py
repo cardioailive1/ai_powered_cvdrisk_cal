@@ -204,6 +204,9 @@ def label_by_bucket(data_dir, raw: dict, model: dict, workers: int = 1) -> pd.Da
             _label_bucket(k)
             done += 1
             log_progress(f"labelled patient bucket {done} / {B}")
+    for other in work.parent.iterdir():          # keep this work for reruns with the same label inputs; drop older
+        if other.is_dir() and other != work:
+            shutil.rmtree(other, ignore_errors=True)
     parts = [p for p in (pd.read_parquet(work / f"bucket={k:03d}.parquet") for k in range(B)) if len(p)]
     sex = _W["sex"]
     _W.clear()
@@ -231,7 +234,6 @@ def create_label_run(db: Session, data_dir, username: str, label_model_path: str
     out = Path(data_dir) / "label_runs" / run_id
     out.mkdir(parents=True, exist_ok=True)
     labels.to_parquet(out / "labels.parquet", index=False)
-    shutil.rmtree(Path(data_dir) / "label_work", ignore_errors=True)     # saved: the per-bucket work is no longer needed
     (out / "label_model.json").write_text(json.dumps(model, indent=2))
     stats = labeling.lf_stats(labels)
     (out / "lf_stats.json").write_text(json.dumps(stats, indent=2))
