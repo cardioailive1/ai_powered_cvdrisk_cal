@@ -41,6 +41,12 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ProposalIn(BaseModel):
+    check_id: str
+    justification: str = ""
+    reason: str = ""
+
+
 class ReviewIn(BaseModel):
     check_id: str
     action: str
@@ -180,6 +186,19 @@ def create_app(data_dir: str) -> FastAPI:
     @app.post("/api/audit/review")
     def audit_review(body: ReviewIn, u: User = Depends(user), s=Depends(db)):
         actions.review_audit_item(s, run_or_404(s), u, body.check_id, body.action, body.justification)
+        return {"ok": True}
+
+    @app.get("/api/audit/proposals")
+    def audit_proposals(u: User = Depends(user), s=Depends(db)):
+        return nan_to_none({"proposals": actions.audit_proposals(s, data_dir, run_or_404(s))})
+
+    @app.post("/api/audit/proposals/accept")
+    def accept_proposal(body: ProposalIn, u: User = Depends(user), s=Depends(db)):
+        return nan_to_none(actions.accept_proposal(s, data_dir, run_or_404(s), u, body.check_id, body.justification or None))
+
+    @app.post("/api/audit/proposals/reject")
+    def reject_proposal(body: ProposalIn, u: User = Depends(user), s=Depends(db)):
+        actions.reject_proposal(s, data_dir, run_or_404(s), u, body.check_id, body.reason)
         return {"ok": True}
 
     @app.post("/api/approve")

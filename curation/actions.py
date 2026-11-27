@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from . import gates as gates_mod
 from . import governance
 from .adjudication import create_sample, metrics
-from .runs import audit_problem, baseline_annotation, get_run_data, latest_audit, save_annotation_notes
+from .runs import audit_problem, baseline_annotation, get_run_data, latest_audit, raw_dir, save_annotation_notes
 from .store import Approval, Case, LabelRun, Review, User, log_event
 
 
@@ -54,6 +54,43 @@ def review_audit_item(db: Session, run: LabelRun, user: User, check_id: str, act
         raise ActionError("The dataset review is already decided for this label run; start a new label run to change it")
     db.add(Review(label_run_id=run.id, item_id=f"audit:{check_id}", user_id=user.id, action=action, justification=justification))
     log_event(db, user.username, f"audit.{action}", f"{run.id}:{check_id}", {"status": check["status"], "justification": justification})
+    db.commit()
+
+
+def audit_proposals(db: Session, data_dir, run: LabelRun) -> list[dict]:
+    """Proposed acknowledge / waive / fix for each open audit item (curation.review_proposals)."""
+    from .review_proposals import proposals
+    ar = latest_audit(db, run.id)
+    if not ar:
+        return []
+    return proposals(gates_mod.audit_items(db, run.id, ar.report), governance.load(data_dir), run.path, raw_dir(data_dir))
+
+
+def accept_proposal(db: Session, data_dir, run: LabelRun, user: User, check_id: str, justification: str | None = None) -> dict:
+    """Record the proposed review for one audit item, under this data scientist's name (optionally with an edited
+    justification). 'fix' proposals cannot be accepted."""
+    _need(user, "data_scientist")
+    p = next((x for x in audit_proposals(db, data_dir, run) if x["check_id"] == check_id), None)
+    if p is None:
+        raise ActionError(f"No open proposal for {check_id}")
+    if p["action"] == "fix":
+        raise ActionError(f"{check_id} needs a fix, not a review: {p['justification']}")
+    text = (justification or p["justification"]).strip()
+    review_audit_item(db, run, user, check_id, p["action"], text)
+    log_event(db, user.username, "audit.proposal_accepted", f"{run.id}:{check_id}",
+              {"action": p["action"], "edited": bool(justification and justification.strip() != p["justification"])})
+    db.commit()
+    return {**p, "justification": text}
+
+
+def reject_proposal(db: Session, data_dir, run: LabelRun, user: User, check_id: str, reason: str = "") -> None:
+    """The data scientist disagrees with a proposal: recorded in the audit trail; the item stays open."""
+    _need(user, "data_scientist")
+    p = next((x for x in audit_proposals(db, data_dir, run) if x["check_id"] == check_id), None)
+    if p is None:
+        raise ActionError(f"No open proposal for {check_id}")
+    log_event(db, user.username, "audit.proposal_rejected", f"{run.id}:{check_id}",
+              {"proposed": p["action"], "proposal": p["justification"], "reason": reason})
     db.commit()
 
 

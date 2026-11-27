@@ -120,6 +120,53 @@ def cmd_status(a):
         print(f"  [{g['status'].upper():7}] {g['title']} — {g['detail']}")
 
 
+def cmd_review_proposals(a):
+    """Go through the proposed review of each open audit item: accept, edit, reject or skip."""
+    db = _db(a.data_dir)
+    run = _run(db)
+    u = _login(db, a.as_user)
+    props = actions.audit_proposals(db, a.data_dir, run)
+    if not props:
+        print("No open audit items: nothing to review.")
+    done = {"accepted": 0, "rejected": 0, "skipped": 0, "needs fix": 0}
+    for i, p in enumerate(props, 1):
+        print(f"\n[{i}/{len(props)}] {p['status'].upper()}  {p['title']}  (value {p['value']}, threshold {p['threshold']})")
+        print(f"  Proposed: {p['action'].upper()}")
+        print("  " + p["justification"])
+        if p["action"] == "fix":
+            print("  -> cannot be accepted: fix the data or extraction, then label again.")
+            done["needs fix"] += 1
+            continue
+        if a.accept_all:
+            ans = "a"
+        else:
+            ans = (input("  [a]ccept / [e]dit and accept / [r]eject / [s]kip: ").strip().lower() or "s")[0]
+        if ans == "a":
+            actions.accept_proposal(db, a.data_dir, run, u, p["check_id"])
+            done["accepted"] += 1
+            print("  Accepted")
+        elif ans == "e":
+            text = input("  Justification: ").strip()
+            actions.accept_proposal(db, a.data_dir, run, u, p["check_id"], text or None)
+            done["accepted"] += 1
+            print("  Accepted (edited)")
+        elif ans == "r":
+            actions.reject_proposal(db, a.data_dir, run, u, p["check_id"], input("  Reason (optional): ").strip())
+            done["rejected"] += 1
+            print("  Rejected: left open for manual review")
+        else:
+            done["skipped"] += 1
+    print("\nSummary: " + ", ".join(f"{v} {k}" for k, v in done.items()))
+    audit_gate = next((g for g in actions.current_gates(db, a.data_dir, run) if g["id"] == "audit"), None)
+    if audit_gate and audit_gate["status"] == "pass" and not a.accept_all:
+        if input("Every audit item is resolved. Approve the dataset review now (starts adjudication)? [y/N]: ").strip().lower() == "y":
+            r = actions.approve(db, a.data_dir, run, u, "ds_dataset_review", "approve",
+                                input("  Comment: ").strip() or "Audit reviewed with proposals")
+            print(json.dumps(r, indent=2, default=str))
+    elif audit_gate:
+        print(f"Audit gate: {audit_gate['status']} — {audit_gate['detail']}")
+
+
 def cmd_review(a):
     db = _db(a.data_dir)
     actions.review_audit_item(db, _run(db), _login(db, a.as_user), a.check, a.action, a.justification or "")
@@ -271,6 +318,10 @@ def main():
     p.add_argument("--action", required=True, choices=["acknowledge", "waive", "revoke"])
     p.add_argument("--justification")
     p.set_defaults(fn=cmd_review)
+    p = sub.add_parser("review-proposals", help="go through proposed acknowledge/waive decisions for open audit items")
+    p.add_argument("--as", dest="as_user", required=True)
+    p.add_argument("--accept-all", action="store_true", help="accept every acceptable proposal without asking")
+    p.set_defaults(fn=cmd_review_proposals)
     p = sub.add_parser("approve")
     p.add_argument("--as", dest="as_user", required=True)
     p.add_argument("--stage", required=True, choices=["ds_dataset_review", "ds_release", "cardiology_release"])
