@@ -206,6 +206,7 @@ Open it through JupyterLab's proxy: `https://<your-jupyter-host>/.../proxy/8090/
 - **Waive** any failure you accept, with a written justification (≥ 20 characters), or fix it and re-label.
 - Check the label-model table: a labelling function that never fires usually means missing evidence.
 - **Proposals.** Each open item shows a proposed decision written from the evidence (the audit tables, the baseline features, yearly candidate counts around the Oct 2015 ICD-10 switch): **Accept**, **Edit & accept** or **Reject** it. Nothing is recorded until you accept; a rejection is logged and the item stays open. Failures are proposed for a waiver only when they are a small tail of real values on the right scale (≤ 5%, median within range); anything else is proposed as **fix / investigate** and cannot be accepted as proposed.
+- **No password in the terminal for your own account:** the workspace login identifies you (MCP account `tonywell_cardioailive_com` = curation user `tonywell`); the audit trail records it. Acting as another user still needs that user's password. The web workbench keeps passwords; set or reset one with `python -m curation.pipeline --data-dir data user-password <user>`.
 - The same in the terminal: `python -m curation.pipeline --data-dir data review-proposals --as <ds-user>` goes through each item (`[a]ccept / [e]dit / [r]eject / [s]kip`) and, when everything is resolved, offers to approve the dataset review.
 
 **6.3 Approve the dataset** on the Pipeline page. This locks the review and **creates the adjudication sample**:

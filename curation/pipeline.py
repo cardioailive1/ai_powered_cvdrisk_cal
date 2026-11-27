@@ -32,17 +32,43 @@ from cardioai_core.security import hash_password, verify_password
 
 from . import actions, governance
 from .runs import create_label_run, current, latest_audit, run_audit
-from .store import ROLES, Case, User, open_store, verify_log
+from .store import ROLES, Case, User, log_event, open_store, verify_log
+
+
+_DATA_DIR = None
 
 
 def _db(data_dir):
+    global _DATA_DIR
+    _DATA_DIR = data_dir
     return open_store(data_dir)()
 
 
+def _workspace_account_matches(u: User, os_user: str, domain: str) -> bool:
+    """The signed-in workspace (Linux) account is this curation user: MCP names accounts after the email, e.g.
+    tonywell@cardioailive.com -> tonywell_cardioailive_com."""
+    norm = lambda e: e.lower().replace("@", "_").replace(".", "_")   # noqa: E731
+    names = {u.username.lower(), norm(f"{u.username}@{domain}")}
+    if u.email:
+        names.add(norm(u.email))
+    return os_user.lower() in names
+
+
 def _login(db, username: str) -> User:
+    """CLI identity. In the workspace the operating-system login already identifies the person, so a user acting as
+    their own curation account needs no password (recorded as signed in by workspace account). Acting as anyone
+    else still needs that user's password."""
     u = db.scalar(select(User).where(User.username == username))
+    if not u or not u.active:
+        sys.exit(f"No active curation user {username!r}")
+    os_user = _sysuser().removeprefix("cli:")
+    domain = governance.load(_DATA_DIR).get("reader_policy", {}).get("email_domain", "cardioailive.com") if _DATA_DIR else "cardioailive.com"
+    if _workspace_account_matches(u, os_user, domain):
+        log_event(db, u.username, "auth.workspace_account", u.username, {"os_user": os_user})
+        db.commit()
+        return u
     pw = os.environ.get("CURATION_PASSWORD") or getpass.getpass(f"Password for {username}: ")
-    if not u or not u.active or not verify_password(pw, u.password_hash):
+    if not verify_password(pw, u.password_hash):
         sys.exit("Authentication failed")
     return u
 
@@ -87,7 +113,6 @@ def cmd_user_add(a):
     if len(pw) < 12:
         sys.exit("Password must be at least 12 characters")
     db.add(User(username=a.username, full_name=a.full_name or "", email=a.email or "", role=a.role, password_hash=hash_password(pw)))
-    from .store import log_event
     log_event(db, _sysuser(), "user.created", a.username, {"role": a.role})
     db.commit()
     print(f"Created {a.role} '{a.username}'")
@@ -118,6 +143,22 @@ def cmd_status(a):
     print(f"Label run {run.id} ({run.label_model_version})")
     for g in actions.current_gates(db, a.data_dir, run):
         print(f"  [{g['status'].upper():7}] {g['title']} — {g['detail']}")
+
+
+def cmd_user_password(a):
+    """Set a new web-workbench password for a user (from the workspace terminal: only people with workspace access
+    can run it). Recorded in the audit trail."""
+    db = _db(a.data_dir)
+    u = db.scalar(select(User).where(User.username == a.username))
+    if not u:
+        sys.exit(f"No curation user {a.username!r}")
+    pw = os.environ.get("NEW_USER_PASSWORD") or getpass.getpass("New password (12+ chars): ")
+    if len(pw) < 12:
+        sys.exit("Password must be at least 12 characters")
+    u.password_hash = hash_password(pw)
+    log_event(db, _sysuser(), "user.password_reset", u.username, {})
+    db.commit()
+    print(f"Password updated for {u.username}")
 
 
 def cmd_review_proposals(a):
@@ -296,6 +337,9 @@ def main():
     p = sub.add_parser("init")
     p.add_argument("--provenance", default="mayo-clinic-platform", choices=["mayo-clinic-platform", "synthetic-demo", "other"])
     p.set_defaults(fn=cmd_init)
+    p = sub.add_parser("user-password", help="set a new workbench password for a user")
+    p.add_argument("username")
+    p.set_defaults(fn=cmd_user_password)
     p = sub.add_parser("user-add")
     p.add_argument("username")
     p.add_argument("--role", required=True)
