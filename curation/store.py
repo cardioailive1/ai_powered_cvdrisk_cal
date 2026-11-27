@@ -6,6 +6,8 @@ by `verify_log()` (shown in the workbench and checked before every release).
 """
 from __future__ import annotations
 
+import re
+
 import datetime as dt
 import hashlib
 import json
@@ -180,11 +182,22 @@ def open_store(data_dir: str | Path) -> sessionmaker:
     return sessionmaker(bind=engine, expire_on_commit=False)
 
 
+INITIALS = re.compile(r"^[A-Z]{2,4}[0-9]?$")
+
+
+def normalize_initials(text: str) -> str:
+    """Users are identified by initials (2-4 letters, optionally a digit to tell two people apart): 'tw' -> 'TW'."""
+    v = (text or "").strip().upper().replace(".", "").replace(" ", "")
+    if not INITIALS.match(v):
+        raise ValueError("Use initials: 2-4 letters, optionally followed by one digit (e.g. TW, JKS, TW2)")
+    return v
+
+
 def check_reader_policy(db: Session, gov: dict, role: str, email: str) -> None:
     """Raise ValueError if creating a user with this role/e-mail breaks the platform's reader rules."""
     pol = gov.get("reader_policy", {})
     dom = pol.get("email_domain")
-    if dom and role in pol.get("domain_roles", []):
+    if dom and role in pol.get("domain_roles", []) and (email or gov.get("auth", {}).get("passwords", True)):
         if not email or not email.lower().endswith("@" + dom.lower()):
             raise ValueError(f"{role} accounts need an @{dom} e-mail (Mayo Clinic Platform workspace seats require it)")
     if role in ("cardiologist", "lead_cardiologist"):

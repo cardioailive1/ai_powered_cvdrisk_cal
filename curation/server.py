@@ -38,7 +38,7 @@ APP_CSS = Path(__file__).resolve().parents[1] / "app" / "static" / "styles.css"
 
 class LoginIn(BaseModel):
     username: str
-    password: str
+    password: str = ""
 
 
 class ProposalIn(BaseModel):
@@ -65,11 +65,10 @@ class WaiveIn(BaseModel):
 
 
 class UserIn(BaseModel):
-    username: str = Field(min_length=3, max_length=80)
-    full_name: str = ""
+    username: str = Field(min_length=2, max_length=80)     # initials
     email: str = ""
     role: str
-    password: str = Field(min_length=12, max_length=200)
+    password: str = ""
 
 
 def create_app(data_dir: str) -> FastAPI:
@@ -131,9 +130,22 @@ def create_app(data_dir: str) -> FastAPI:
         return JSONResponse({"detail": str(e)}, status_code=400)
 
     # ------------------------------------------------------------ auth
+    def passwords() -> bool:
+        return bool(governance.load(data_dir).get("auth", {}).get("passwords", False))
+
+    @app.get("/api/auth/config")
+    def auth_config():
+        return {"passwords": passwords()}
+
     @app.post("/api/auth/login")
     def login(body: LoginIn, s=Depends(db)):
-        u = s.scalar(select(User).where(User.username == body.username.strip()))
+        name = body.username.strip()
+        u = s.scalar(select(User).where(User.username == name)) or s.scalar(select(User).where(User.username == name.upper()))
+        if u and u.active and not passwords():          # initials only: logged, not authenticated
+            log_event(s, u.username, "auth.login", "login", {"method": "initials", "authenticated": False})
+            s.commit()
+            return {"token": make_token(secret, u.id, u.username, u.role, 600), "username": u.username, "role": u.role,
+                    "full_name": ""}
         if not u or not u.active or not verify_password(body.password, u.password_hash):
             log_event(s, body.username[:80], "auth.failed", "login", {})
             s.commit()
@@ -277,15 +289,20 @@ def create_app(data_dir: str) -> FastAPI:
         need(u, "admin")
         if body.role not in ROLES:
             raise HTTPException(422, f"role must be one of {ROLES}")
-        if s.scalar(select(User).where(User.username == body.username)):
-            raise HTTPException(409, "Username exists")
+        from .store import normalize_initials
         try:
+            name = normalize_initials(body.username)
             check_reader_policy(s, governance.load(data_dir), body.role, body.email)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        s.add(User(username=body.username, full_name=body.full_name, email=body.email, role=body.role,
-                   password_hash=hash_password(body.password)))
-        log_event(s, u.username, "user.created", body.username, {"role": body.role})
+        if s.scalar(select(User).where(User.username == name)):
+            raise HTTPException(409, f"{name} exists: add a digit for a second person with the same initials")
+        if passwords() and len(body.password) < 12:
+            raise HTTPException(400, "Password must be at least 12 characters")
+        import secrets as _s
+        s.add(User(username=name, full_name="", email=body.email, role=body.role,
+                   password_hash=hash_password(body.password if passwords() else _s.token_urlsafe(24))))
+        log_event(s, u.username, "user.created", name, {"role": body.role})
         s.commit()
         return {"ok": True}
 

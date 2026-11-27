@@ -58,7 +58,7 @@ def _login(db, username: str) -> User:
     """CLI identity. In the workspace the operating-system login already identifies the person, so a user acting as
     their own curation account needs no password (recorded as signed in by workspace account). Acting as anyone
     else still needs that user's password."""
-    u = db.scalar(select(User).where(User.username == username))
+    u = db.scalar(select(User).where(User.username == username)) or db.scalar(select(User).where(User.username == username.upper()))
     if not u or not u.active:
         sys.exit(f"No active curation user {username!r}")
     os_user = _sysuser().removeprefix("cli:")
@@ -67,10 +67,18 @@ def _login(db, username: str) -> User:
         log_event(db, u.username, "auth.workspace_account", u.username, {"os_user": os_user})
         db.commit()
         return u
+    if not _passwords(governance.load(_DATA_DIR) if _DATA_DIR else {}):
+        log_event(db, u.username, "auth.initials", u.username, {"os_user": os_user, "authenticated": False})
+        db.commit()
+        return u
     pw = os.environ.get("CURATION_PASSWORD") or getpass.getpass(f"Password for {username}: ")
     if not verify_password(pw, u.password_hash):
         sys.exit("Authentication failed")
     return u
+
+
+def _passwords(gov: dict) -> bool:
+    return bool(gov.get("auth", {}).get("passwords", False))
 
 
 def _run(db):
@@ -105,17 +113,26 @@ def cmd_user_add(a):
     if a.role not in ROLES:
         sys.exit(f"role must be one of {ROLES}")
     db = _db(a.data_dir)
-    if db.scalar(select(User).where(User.username == a.username)):
-        sys.exit("User exists")
-    from .store import check_reader_policy
-    check_reader_policy(db, governance.load(a.data_dir), a.role, a.email or "")
-    pw = a.password or os.environ.get("NEW_USER_PASSWORD") or getpass.getpass("New password (12+ chars): ")
-    if len(pw) < 12:
-        sys.exit("Password must be at least 12 characters")
-    db.add(User(username=a.username, full_name=a.full_name or "", email=a.email or "", role=a.role, password_hash=hash_password(pw)))
-    log_event(db, _sysuser(), "user.created", a.username, {"role": a.role})
+    gov = governance.load(a.data_dir)
+    from .store import check_reader_policy, normalize_initials
+    try:
+        name = normalize_initials(a.initials)
+        check_reader_policy(db, gov, a.role, a.email or "")
+    except ValueError as e:
+        sys.exit(str(e))
+    if db.scalar(select(User).where(User.username == name)):
+        sys.exit(f"User {name} exists: add a digit for a second person with the same initials (e.g. {name}2)")
+    if _passwords(gov):
+        pw = a.password or os.environ.get("NEW_USER_PASSWORD") or getpass.getpass("New password (12+ chars): ")
+        if len(pw) < 12:
+            sys.exit("Password must be at least 12 characters")
+    else:
+        import secrets
+        pw = secrets.token_urlsafe(24)          # never used: sign-in is by initials only
+    db.add(User(username=name, full_name="", email=a.email or "", role=a.role, password_hash=hash_password(pw)))
+    log_event(db, _sysuser(), "user.created", name, {"role": a.role})
     db.commit()
-    print(f"Created {a.role} '{a.username}'")
+    print(f"Created {a.role} {name}")
 
 
 def cmd_label(a):
@@ -340,12 +357,11 @@ def main():
     p = sub.add_parser("user-password", help="set a new workbench password for a user")
     p.add_argument("username")
     p.set_defaults(fn=cmd_user_password)
-    p = sub.add_parser("user-add")
-    p.add_argument("username")
+    p = sub.add_parser("user-add", help="add a user, identified by initials")
+    p.add_argument("initials", help="2-4 letters, optionally a digit (TW, JKS, TW2)")
     p.add_argument("--role", required=True)
-    p.add_argument("--full-name")
-    p.add_argument("--email", help="required for cardiologists: must be an @cardioailive.com workspace account")
-    p.add_argument("--password", help="avoid on shared machines; prefer the prompt or $NEW_USER_PASSWORD")
+    p.add_argument("--email", help="optional; if given for a reader it must be an @cardioailive.com workspace account")
+    p.add_argument("--password", help="only when governance auth.passwords is true")
     p.set_defaults(fn=cmd_user_add)
     p = sub.add_parser("label")
     p.add_argument("--label-model", help="JSON label model (default: expert-v2)")
