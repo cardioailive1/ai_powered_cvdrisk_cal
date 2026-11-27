@@ -195,18 +195,24 @@ The reports are in `data/label_runs/<LR-id>/`: `AUDIT_REPORT.md`, `lf_stats.json
 
 ## Phase 6 — Data scientist review (≈½–1 day) · DS
 
-**6.1 Start the workbench** (workspace only, localhost):
-```bash
-python -m curation.server --host 127.0.0.1 --port 8090
-```
-Open it through JupyterLab's proxy: `https://<your-jupyter-host>/.../proxy/8090/`. Sign in as the data scientist.
+**6.1 Open the workbench.** Two ways; use the notebook if the workspace blocks the local web server.
+- **In a notebook (recommended on MCP):** readers and the lead adjudicate inside JupyterLab, no browser tab or port:
+  ```python
+  import sys; sys.path.insert(0, "/home/tonywell_cardioailive_com/Desktop/ai_powered_cvdrisk_cal")
+  %cd /home/tonywell_cardioailive_com/Desktop/ai_powered_cvdrisk_cal
+  from curation.notebook import Workbench, progress
+  Workbench("data", "AB")      # a cardiologist's or the lead's initials
+  progress("data")             # data scientist: cases final / open, κ, PPV / NPV, proposal acceptance per outcome
+  ```
+  The data scientist review (6.2) is done in the terminal with `review-proposals` (below).
+- **In the browser:** `python -m curation.server --host 127.0.0.1 --port 8090`, then open `https://<your-jupyter-host>/.../proxy/8090/` and sign in by initials.
 
 **6.2 Audit review page.**
 - **Acknowledge** every warning with a note.
 - **Waive** any failure you accept, with a written justification (≥ 20 characters), or fix it and re-label.
 - Check the label-model table: a labelling function that never fires usually means missing evidence.
 - **Proposals.** Each open item shows a proposed decision written from the evidence (the audit tables, the baseline features, yearly candidate counts around the Oct 2015 ICD-10 switch): **Accept**, **Edit & accept** or **Reject** it. Nothing is recorded until you accept; a rejection is logged and the item stays open. Failures are proposed for a waiver only when they are a small tail of real values on the right scale (≤ 5%, median within range); anything else is proposed as **fix / investigate** and cannot be accepted as proposed.
-- **No password in the terminal for your own account:** the workspace login identifies you (MCP account `tonywell_cardioailive_com` = curation user `tonywell`); the audit trail records it. Acting as another user still needs that user's password. The web workbench keeps passwords; set or reset one with `python -m curation.pipeline --data-dir data user-password <user>`.
+- **No passwords** by default (`auth.passwords: false`): the CLI and workbenches identify people by initials; the audit trail records them.
 - The same in the terminal: `python -m curation.pipeline --data-dir data review-proposals --as <ds-user>` goes through each item (`[a]ccept / [e]dit / [r]eject / [s]kip`) and, when everything is resolved, offers to approve the dataset review.
 
 **6.3 Approve the dataset** on the Pipeline page. This locks the review and **creates the adjudication sample**:
@@ -224,12 +230,12 @@ Each case is assigned to readers.
 
 **7.1 Kick-off (1 h, CL leads).** Walk through the Clinician Lead Guide, the definitions and 5 practice cases together. Practice cases count, so do them on the live queue.
 
-**7.2 Readers** work through **My cases**:
+**7.2 Readers** work through **My cases** (notebook: `Workbench("data", "<initials>")`, **Next open case** after each submit):
 - **assisted reads (default, `adjudication.proposals: true` in `data/governance.json`):** each reader and the lead see a **proposed decision** built from the auto-label and its evidence, and **Accept**, **Edit** or **Reject: decide myself**. Each read stores the proposal and whether it was accepted; the release report states that reads were assisted (κ / PPV / NPV can be inflated by anchoring) and the acceptance rate per outcome. Readers never see the sampling reason or other readers' decisions. Set `proposals` to `false` before approving the dataset for fully blinded reads;
 - for each case, choose event / not an event / cannot determine, then subtype, date and the criteria met;
 - report-value checks: confirm or correct the LVEF / calcium values.
 
-**7.3 Lead cardiologist** works through **Disagreements**. These are cases where the two readers disagreed; the CL sees both reads and decides.
+**7.3 Lead cardiologist** works through **Disagreements** (notebook: `Workbench("data", "<lead initials>")` lists them first). These are cases where the two readers disagreed; the CL sees both reads and decides.
 
 **7.4 DS monitors** progress daily:
 ```bash

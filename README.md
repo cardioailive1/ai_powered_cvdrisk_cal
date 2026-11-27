@@ -103,6 +103,7 @@ python -m curation.pipeline user-add CC --role lead_cardiologist
 python -m curation.pipeline label --data-dir data            # 1 + 2 (labelling, then the required automatic audit)
 python -m curation.pipeline audit --data-dir data            #   re-run the audit if needed
 python -m curation.server --data-dir data --port 8090        # 3–5 in the browser (workspace-only)
+# or in a notebook (no web server): from curation.notebook import Workbench; Workbench("data", "AB")
 python -m curation.pipeline status  --data-dir data
 python -m curation.pipeline release --data-dir data --as dsmith   # or the button in the workbench
 python -m training.train --release data/releases/<REL-id> --out bundles/mcp-$(date +%Y-%m)

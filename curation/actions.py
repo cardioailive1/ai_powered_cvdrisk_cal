@@ -57,6 +57,40 @@ def review_audit_item(db: Session, run: LabelRun, user: User, check_id: str, act
     db.commit()
 
 
+def open_case(db: Session, data_dir, run: LabelRun, user: User, case_id: str) -> dict:
+    """What a reader or the lead sees for one case: their task, the evidence packet and (assisted reads) the proposal.
+    Shared by the web workbench and the notebook workbench."""
+    from .adjudication import _same, reader_view
+    if user.role not in ("cardiologist", "lead_cardiologist"):
+        raise ActionError("Only cardiologists read cases")
+    c = db.get(Case, case_id)
+    if not c or c.label_run_id != run.id:
+        raise ActionError("Case not found")
+    view = reader_view(db, c, user)
+    rd = get_run_data(data_dir, run)
+    view["packet"] = rd.annotation_packet(c.ref_id) if c.case_type == "annotation" else rd.event_packet(c.ref_id)
+    prop = case_proposal(governance.load(data_dir), rd, c, view["packet"])
+    if prop is not None:
+        if view.get("independent_reads"):      # lead: which reader the proposal agrees with
+            prop["agrees_with"] = [r["reader"] for r in view["independent_reads"] if _same(c, r, prop["decision"])]
+        view["proposal"] = prop
+    log_event(db, user.username, "case.viewed", c.id, {"proposal_shown": prop is not None})
+    db.commit()
+    return view
+
+
+def submit_case_read(db: Session, data_dir, run: LabelRun, user: User, case_id: str, decision: dict) -> str:
+    """Record a read (independent or lead); the proposal is recomputed here: what the reader was shown."""
+    from .adjudication import submit_read
+    if user.role not in ("cardiologist", "lead_cardiologist"):
+        raise ActionError("Only cardiologists read cases")
+    c = db.get(Case, case_id)
+    if not c or c.label_run_id != run.id:
+        raise ActionError("Case not found")
+    gov = governance.load(data_dir)
+    return submit_read(db, c, user, decision, gov, case_proposal(gov, get_run_data(data_dir, run), c)).status
+
+
 def case_proposal(gov: dict, rd, case: Case, packet: dict | None = None) -> dict | None:
     """The proposed read for a case when governance adjudication.proposals is on (assisted reads), else None."""
     from .adjudication import propose_annotation, propose_event, proposals_on

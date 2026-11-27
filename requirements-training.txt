@@ -7,3 +7,5 @@ google-cloud-bigquery>=3.25
 db-dtypes>=1.3
 # pyspark is provided by the workspace's Spark runtime (data is queried with Spark SQL).
 # Only install it yourself for local testing:  pip install "pyspark>=3.3"
+# notebook adjudication workbench (curation/notebook.py); usually already in JupyterLab
+ipywidgets>=8
