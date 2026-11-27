@@ -165,6 +165,8 @@
     const A = await api("audit");
     if (!A.report) return (v.innerHTML = `<div class="card empty">No audit yet.</div>`);
     const isDS = ME.role === "data_scientist" && !A.locked;
+    const P = {};
+    if (isDS) ((await api("audit/proposals")).proposals || []).forEach((p) => (P[p.check_id] = p));
     const rank = (i) => (i.resolved ? 2 : 0) + (i.status === "fail" ? 0 : i.status === "warn" ? 1 : 3);
     const items = [...A.items].sort((a, b) => rank(a) - rank(b));
     const byCat = {};
@@ -177,7 +179,14 @@
     };
     const item = (i) => {
       const rv = i.review ? `<div class="muted">↳ ${esc(i.review.action)}${i.review.justification ? `: “${esc(i.review.justification)}”` : ""}</div>` : "";
-      const acts = !isDS || i.status === "pass" ? "" : `<div class="row-actions">
+      const p = P[i.id];
+      const prop = !p ? "" : `<div class="card" style="background:var(--bg-tertiary);margin:.5rem 0;padding:.6rem .8rem">
+        <div><b>Proposed: ${esc(p.action)}</b>${p.action === "fix" ? ' <span class="muted">(cannot be accepted: fix the data, then label again)</span>' : ""}</div>
+        <div class="muted" style="margin:.3rem 0">${esc(p.justification)}</div>
+        ${p.action === "fix" ? "" : `<div class="row-actions"><button class="btn-sm btn-ok" data-pa="${i.id}">Accept</button>
+          <button class="btn-sm btn-secondary" data-pe="${i.id}">Edit &amp; accept…</button>
+          <button class="btn-sm btn-ghost" data-pr="${i.id}">Reject…</button></div>`}</div>`;
+      const acts = !isDS || i.status === "pass" ? prop : prop + `<div class="row-actions">
         ${i.status === "warn" && !i.review ? `<button class="btn-sm btn-ok" data-rv="${i.id}" data-a="acknowledge">Acknowledge</button>` : ""}
         ${!i.review ? `<button class="btn-sm btn-warn" data-rv="${i.id}" data-a="waive">Waive with justification…</button>` : `<button class="btn-sm btn-ghost" data-rv="${i.id}" data-a="revoke">Revoke</button>`}</div>`;
       const res = i.resolved && i.status !== "pass" ? (i.review?.action === "waive" ? chip("waived") : `<span class="chip pass">acknowledged</span>`) : "";
@@ -199,6 +208,16 @@
       if (a === "waive") { j = prompt("Justification (≥20 characters, recorded in the audit trail):"); if (!j) return; }
       if (a === "acknowledge") { j = prompt("Optional note:", "Reviewed") || ""; }
       act(() => post("audit/review", { check_id: b.dataset.rv, action: a, justification: j }), "Recorded");
+    }));
+    v.querySelectorAll("[data-pa]").forEach((b) => (b.onclick = () =>
+      act(() => post("audit/proposals/accept", { check_id: b.dataset.pa }), "Proposal accepted")));
+    v.querySelectorAll("[data-pe]").forEach((b) => (b.onclick = () => {
+      const j = prompt("Justification (recorded in the audit trail):", P[b.dataset.pe].justification);
+      if (j) act(() => post("audit/proposals/accept", { check_id: b.dataset.pe, justification: j }), "Accepted (edited)");
+    }));
+    v.querySelectorAll("[data-pr]").forEach((b) => (b.onclick = () => {
+      const r = prompt("Why do you reject this proposal? (recorded; the item stays open for manual review)", "");
+      if (r !== null) act(() => post("audit/proposals/reject", { check_id: b.dataset.pr, reason: r }), "Proposal rejected");
     }));
   }
 
