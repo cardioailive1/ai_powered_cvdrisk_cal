@@ -132,6 +132,7 @@ def build_release(db: Session, data_dir, run: LabelRun, user: User) -> Release:
         "adjudication": {"families": {f: {k: v for k, v in x.items() if k != "strata"} for f, x in m["families"].items()},
                          "annotation": m["annotation"], "totals": m["totals"]},
         "assisted_reads": any(x.get("assisted_reads") for x in m["families"].values()),
+        "authenticated_sign_ins": bool(gov.get("auth", {}).get("passwords", False)),
         "event_label_sources": {k: int(v) for k, v in src.items()}, "endpoint_counts": counts, "implausible_values_cleared": cleaned,
         "n_patients": int(len(ds)),
     }
@@ -152,6 +153,9 @@ def release_markdown(s: dict) -> str:
     if s["synthetic_data"] or s["simulated_adjudication"]:
         L += ["", "> **NOT FOR CLINICAL USE** — " + ("synthetic data; " if s["synthetic_data"] else "")
               + ("adjudication was SIMULATED, not performed by cardiologists." if s["simulated_adjudication"] else "")]
+    if not s.get("authenticated_sign_ins", True):
+        L += ["", "> **Identity.** People are identified by initials without passwords: sign-ins, reads and sign-offs are "
+              "recorded in the audit trail but not authenticated."]
     L += ["", "## Sign-offs", ""] + [f"- {a['stage']}: **{a['decision']}** by {a['user']} ({a['role']}) at {a['at']} — {a['comment']}" for a in s["approvals"]]
     L += ["", "## Adjudication", ""]
     if s.get("assisted_reads"):

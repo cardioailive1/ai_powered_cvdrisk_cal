@@ -34,7 +34,7 @@
   async function login(e) {
     e.preventDefault();
     try {
-      const r = await post("auth/login", { username: $("#username").value.trim(), password: $("#password").value });
+      const r = await post("auth/login", { username: $("#username").value.trim(), password: AUTH.passwords ? $("#password").value : "" });
       sessionStorage.setItem(TOKEN, r.token); await boot();
     } catch (ex) { const m = $("#error-message"); m.textContent = ex.message; m.classList.add("show"); $("#password").value = ""; }
   }
@@ -401,19 +401,27 @@
   }
   async function viewUsers(v) {
     const R = await api("users"), U = R.users;
-    v.innerHTML = `<h1>Users</h1><p class="lede">Annotator seats in use: <b>${R.seats_used}/${R.seats_available}</b>. Cardiologist accounts need an <b>@${esc(R.email_domain)}</b> e-mail, matching their Mayo Clinic Platform workspace seat. Mayo Clinic staff cannot annotate in this environment.</p>
-      <div class="card"><div class="tscroll"><table class="t"><thead><tr><th>Username</th><th>Name</th><th>E-mail</th><th>Role</th><th>Active</th></tr></thead><tbody>
-      ${U.map((u) => `<tr><td>${esc(u.username)}</td><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td><td>${ROLE[u.role]}</td><td>${u.active ? "yes" : "no"}</td></tr>`).join("")}</tbody></table></div></div>
+    v.innerHTML = `<h1>Users</h1><p class="lede">Annotator seats in use: <b>${R.seats_used}/${R.seats_available}</b>. People are identified by initials${AUTH.passwords ? "" : " (no passwords: sign-ins are logged, not authenticated)"}. Mayo Clinic staff cannot annotate in this environment.</p>
+      <div class="card"><div class="tscroll"><table class="t"><thead><tr><th>Initials</th><th>E-mail</th><th>Role</th><th>Active</th></tr></thead><tbody>
+      ${U.map((u) => `<tr><td>${esc(u.username)}</td><td>${esc(u.email)}</td><td>${ROLE[u.role]}</td><td>${u.active ? "yes" : "no"}</td></tr>`).join("")}</tbody></table></div></div>
       <div class="card"><h2>Add user</h2><div class="grid2">
-        <div><label>Username</label><input id="nu-u"></div><div><label>Full name</label><input id="nu-n"></div>
-        <div><label>E-mail (workspace account)</label><input id="nu-e" type="email" placeholder="name@${esc(R.email_domain)}"></div>
+        <div><label>Initials (2-4 letters, optional digit)</label><input id="nu-u" placeholder="e.g. JKS"></div>
+        <div><label>E-mail (optional, workspace account)</label><input id="nu-e" type="email" placeholder="name@${esc(R.email_domain)}"></div>
         <div><label>Role</label><select id="nu-r">${Object.entries(ROLE).map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></div>
-        <div><label>Initial password (12+ characters)</label><input id="nu-p" type="password"></div></div>
+        ${AUTH.passwords ? `<div><label>Initial password (12+ characters)</label><input id="nu-p" type="password"></div>` : ""}</div>
         <div class="row-actions" style="margin-top:1rem"><button class="btn-sm btn-primary" id="nu-go">Create user</button></div></div>`;
-    $("#nu-go").onclick = () => act(() => post("users", { username: $("#nu-u").value, full_name: $("#nu-n").value, email: $("#nu-e").value, role: $("#nu-r").value, password: $("#nu-p").value }), "User created");
+    $("#nu-go").onclick = () => act(() => post("users", { username: $("#nu-u").value, email: $("#nu-e").value, role: $("#nu-r").value, password: AUTH.passwords ? $("#nu-p").value : "" }), "User created");
   }
 
   // ------------------------------------------------------------ boot
+  let AUTH = { passwords: false };
+  fetch("api/auth/config").then((r) => r.json()).then((c) => {
+    AUTH = c;
+    if (!c.passwords) {                     // initials only
+      const pw = $("#password"); pw.required = false; pw.closest(".form-group").classList.add("hidden");
+      $("#username").closest(".form-group").querySelector("label").textContent = "Your initials";
+    }
+  }).catch(() => {});
   $("#login-form").addEventListener("submit", login);
   $("#logout").addEventListener("click", logout);
   if (sessionStorage.getItem(TOKEN)) boot().catch(logout);

@@ -34,6 +34,12 @@ DEFAULTS: dict = {
     },
     # Mayo Clinic Platform (A. Resnick, 14 Oct 2026): up to 5 additional annotator seats, each needing a
     # cardioailive.com e-mail; Mayo Clinic staff cannot annotate in this environment (readers must be external).
+    "auth": {
+        # False: people sign in with their initials only (no passwords anywhere). Sign-ins are logged but not
+        # authenticated, so anyone who can reach the workbench or the workspace terminal can act as any user; the
+        # release report says so. True: passwords for the web workbench and for acting as another user in the CLI.
+        "passwords": False,
+    },
     "reader_policy": {
         "email_domain": "cardioailive.com",
         "domain_roles": ["cardiologist", "lead_cardiologist"],

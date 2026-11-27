@@ -163,13 +163,13 @@ Expect hundreds of thousands of patients in `features`, and every evidence table
 export CURATION_DATA_DIR=$PWD/data
 python -m curation.pipeline init --provenance mayo-clinic-platform
 # edit data/governance.json now if the CL agreed different thresholds (Phase 2.5)
-python -m curation.pipeline user-add dsmith   --role data_scientist                 --full-name "D Smith"
-python -m curation.pipeline user-add drlead   --role lead_cardiologist --email lead@cardioailive.com --full-name "Dr Lead"
-python -m curation.pipeline user-add drreader1 --role cardiologist     --email r1@cardioailive.com   --full-name "Dr Reader 1"
-python -m curation.pipeline user-add drreader2 --role cardiologist     --email r2@cardioailive.com   --full-name "Dr Reader 2"
+python -m curation.pipeline user-add DS  --role data_scientist
+python -m curation.pipeline user-add CL  --role lead_cardiologist
+python -m curation.pipeline user-add AR  --role cardiologist
+python -m curation.pipeline user-add BR  --role cardiologist
 # up to 5 reader seats in total (lead + cardiologists); cardiologist accounts must be @cardioailive.com
 ```
-Each user is prompted for a password (12+ characters). Hand passwords over in person or through a password manager. Never e-mail them.
+People are identified by **initials only** (2-4 letters, add a digit for a second person with the same initials, e.g. `TW2`); no names are stored and, by default, **no passwords** (`auth.passwords: false` in `data/governance.json`): everyone signs in to the workbench by initials and the CLI never asks for a password. Sign-ins, reads and sign-offs are logged but not authenticated, and the release report says so. Set `auth.passwords: true` to require passwords again (then `user-add` asks for one and `user-password` resets it). `--email` is optional; if given for a reader it must be an @cardioailive.com workspace account.
 
 ✅ **Done when** `user-add` has succeeded for everyone.
 

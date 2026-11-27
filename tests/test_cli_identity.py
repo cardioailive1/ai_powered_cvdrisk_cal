@@ -23,6 +23,11 @@ def test_workspace_account_matches():
 
 
 def test_login_without_password_only_for_own_account(tmp_path, monkeypatch):
+    """With governance auth.passwords true."""
+    from curation import governance
+    cfg = governance.load(tmp_path)
+    cfg["auth"]["passwords"] = True
+    governance.save(tmp_path, cfg)
     db = pipeline._db(tmp_path)
     db.add(User(username="tonywell", role="data_scientist", password_hash=hash_password("p" * 12)))
     db.add(User(username="card1", role="cardiologist", password_hash=hash_password("q" * 12)))
@@ -36,3 +41,19 @@ def test_login_without_password_only_for_own_account(tmp_path, monkeypatch):
         pipeline._login(db, "card1")                     # someone else's account: password still required
     monkeypatch.setattr(pipeline.getpass, "getpass", lambda *a: "q" * 12)
     assert pipeline._login(db, "card1").username == "card1"
+
+
+def test_initials_only_no_passwords(tmp_path, monkeypatch, capsys):
+    """Default (auth.passwords false): users are added by initials with no password and anyone signs in by initials."""
+    import argparse
+    db = pipeline._db(tmp_path)
+    monkeypatch.setattr(pipeline.getpass, "getpass", lambda *a: pytest.fail("asked for a password"))
+    for ini, role in (("jks", "cardiologist"), ("AB", "cardiologist"), ("cd", "lead_cardiologist")):
+        pipeline.cmd_user_add(argparse.Namespace(data_dir=tmp_path, initials=ini, role=role, email=None, password=None))
+    assert "Created lead_cardiologist CD" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        pipeline.cmd_user_add(argparse.Namespace(data_dir=tmp_path, initials="Dr Smith", role="cardiologist", email=None, password=None))
+    with pytest.raises(SystemExit):        # same initials: needs a digit
+        pipeline.cmd_user_add(argparse.Namespace(data_dir=tmp_path, initials="JKS", role="cardiologist", email=None, password=None))
+    monkeypatch.setattr(pipeline, "_sysuser", lambda: "cli:someone_else")
+    assert pipeline._login(db, "jks").username == "JKS"
