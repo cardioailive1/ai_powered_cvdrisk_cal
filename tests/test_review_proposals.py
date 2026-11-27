@@ -92,3 +92,18 @@ def test_unexplained_warning_is_investigated(cfg):
     p = propose({"id": "lf_coverage", "status": "warn", "title": "Labelling functions that never fire", "value": 2,
                  "detail": "trop_elevated_flat"}, cfg)
     assert p["action"] == "fix" and p["justification"].startswith("Investigate")
+
+
+def test_event_proposals():
+    from curation.adjudication import propose_event
+    row = {"auto_label": "confirmed", "p_auto": 0.97, "subtype_auto": "nstemi", "event_date": "2016-03-02",
+           "lf_trop_rise_fall": 1, "lf_note_mi": 1, "lf_trop_normal": 0}
+    p = propose_event(row, "ami")
+    d = p["decision"]
+    assert p["acceptable"] and d["outcome"] == "event" and d["subtype"] == "nstemi" and d["criteria"] == ["trop_rise_fall"]
+    assert d["confidence"] == "high" and d["event_date"] == "2016-03-02"
+    row2 = {"auto_label": "confirmed", "p_auto": 0.9, "subtype_auto": "x", "event_date": "2016-03-02", "lf_note_mi": 1}
+    p2 = propose_event(row2, "ami")
+    assert not p2["acceptable"] and p2["decision"]["subtype"] == "unspecified"          # no criterion documented
+    p3 = propose_event({"auto_label": "uncertain", "p_auto": 0.3, "event_date": "2016-03-02", "lf_trop_normal": -1}, "ami")
+    assert p3["decision"]["outcome"] == "not_event" and p3["decision"]["confidence"] == "low" and p3["acceptable"]

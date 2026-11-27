@@ -132,7 +132,7 @@
         ${S.workload ? `<p class="muted" style="margin-top:.8rem">Expected adjudication load with ${S.workload.readers} cardiologist(s) + 1 lead (${S.workload.seats_needed}/${S.workload.seats_available} annotator seats):
           <b>${S.workload.event_cases.toLocaleString()}</b> event cases, ≈${S.workload.reads_per_reader.toLocaleString()} reads (${S.workload.hours_per_reader} h) per cardiologist, ≈${S.workload.expected_lead_reads} lead cases. ${esc(S.workload.assumptions)}.</p>` : ""}</div>
       <div class="card"><h2><span class="stage-num">4</span>Cardiologist adjudication ${chip(m.totals.cases ? (m.totals.open + m.totals.disagreement ? "pending" : "pass") : "pending")}</h2>
-        ${m.totals.cases ? `<p class="muted">Blinded double reads; disagreements go to a lead cardiologist who was not a reader. ${m.totals.final}/${m.totals.cases} cases final.</p>
+        ${m.totals.cases ? `<p class="muted">${STATUS.governance.adjudication && STATUS.governance.adjudication.proposals ? "Assisted double reads (proposal shown)" : "Blinded double reads"}; disagreements go to a lead cardiologist who was not a reader. ${m.totals.final}/${m.totals.cases} cases final.</p>
         <div class="tscroll"><table class="t"><thead><tr><th>Outcome</th><th class="num">Final</th><th></th><th class="num">Awaiting lead</th><th class="num">κ</th></tr></thead><tbody>${adjRows}
         <tr><td>Imaging annotation (LVEF/CAC)</td><td class="num">${ann.final}/${ann.cases}</td><td><div class="progress"><div style="width:${ann.cases ? (100 * ann.final) / ann.cases : 0}%"></div></div></td><td></td><td></td></tr></tbody></table></div>` : `<p class="muted">The sample is created when the data scientist approves the dataset.</p>`}</div>
       <div class="card"><h2><span class="stage-num">5</span>Release gates ${chip(S.releasable ? "pass" : "pending")}</h2>
@@ -229,7 +229,7 @@
       <td><a href="#/case/${esc(c.case_id)}"><button class="btn-sm btn-primary">Open</button></a></td></tr>`).join("")}</tbody></table></div></div>`;
   }
   function viewQueue(v) {
-    v.innerHTML = `<h1>My cases</h1><p class="lede">${QUEUE.open.length} open · ${QUEUE.completed} completed. Cases are blinded: you will not see the automatic label, why the case was sampled, or other readers' decisions.</p>
+    v.innerHTML = `<h1>My cases</h1><p class="lede">${QUEUE.open.length} open · ${QUEUE.completed} completed. ${STATUS.governance && STATUS.governance.adjudication && STATUS.governance.adjudication.proposals ? "Assisted reads: each case shows a proposed decision to accept or reject; you never see why it was sampled or other readers' decisions." : "Cases are blinded: you will not see the automatic label, why the case was sampled, or other readers' decisions."}</p>
       ${caseList(QUEUE.open, "No open cases. Thank you!")}`;
   }
   function viewDisagreements(v) {
@@ -265,7 +265,9 @@
     const form = done ? `<div class="card"><h2>Submitted ${chip("pass")}</h2><p class="muted">${esc(R.outcome)}${R.subtype ? " · " + esc(R.subtype) : ""}${R.event_date ? " · " + esc(R.event_date) : ""}</p>
         <div class="row-actions"><a href="#/${C.mode === "lead" ? "disagreements" : "queue"}"><button class="btn-sm btn-primary">Back to list</button></a></div></div>` : `
       <div class="card decision"><h2>${C.mode === "lead" ? "Lead adjudication" : "Your decision"}</h2>
-        ${C.mode === "lead" ? reads : `<div class="blind">Blinded read: the automatic label, sampling reason and other readers' decisions are hidden.</div>`}
+        ${C.mode === "lead" ? reads : ""}
+        ${C.proposal ? proposalBox(C.proposal, P) : (C.mode === "lead" ? "" : `<div class="blind">Blinded read: the automatic label, sampling reason and other readers' decisions are hidden.</div>`)}
+        <div id="own-form" class="${C.proposal ? "hidden" : ""}">
         <div class="muted" style="margin-bottom:.5rem">${esc(P.definition)}</div>
         ${[["event", "Confirmed event"], ["not_event", "Not an event"], ["indeterminate", "Cannot determine from the record"]].map(([k, l]) => `<label class="opt"><input type="radio" name="outcome" value="${k}"> ${l}</label>`).join("")}
         <div id="ev-fields" class="hidden"><h3>Subtype</h3>${Object.entries(P.subtypes).map(([k, l]) => `<label class="opt"><input type="radio" name="subtype" value="${k}"> ${esc(l)}</label>`).join("")}
@@ -273,7 +275,7 @@
           <h3>Criteria met</h3>${Object.entries(P.criteria).map(([k, l]) => `<label class="opt"><input type="checkbox" name="crit" value="${k}"> ${esc(l)}</label>`).join("")}</div>
         <h3>Confidence</h3><select id="conf"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
         <h3>Comment</h3><textarea id="cmt" placeholder="Required if the outcome cannot be determined"></textarea>
-        <div class="row-actions"><button class="btn-primary" id="submit" style="width:100%">Submit decision</button></div></div>`;
+        <div class="row-actions"><button class="btn-primary" id="submit" style="width:100%">Submit decision</button></div></div></div>`;
 
     v.innerHTML = `<p class="muted"><a href="#/${C.mode === "lead" ? "disagreements" : "queue"}" style="color:var(--text-muted)">← back</a></p>
       <h1>${esc(P.family_name)} <span class="mono" style="font-size:1rem;color:var(--text-muted)">${esc(C.case_id)}</span></h1>
@@ -291,6 +293,24 @@
       v.querySelectorAll(".opt").forEach((o) => o.classList.toggle("sel", $("input", o).checked));
       $("#ev-fields").classList.toggle("hidden", (v.querySelector("input[name=outcome]:checked") || {}).value !== "event");
     }));
+    const fill = (d) => {        // put a proposed decision into the form
+      v.querySelectorAll("input[name=outcome]").forEach((i) => (i.checked = i.value === d.outcome));
+      v.querySelectorAll("input[name=subtype]").forEach((i) => (i.checked = i.value === d.subtype));
+      if (d.event_date) $("#ev-date").value = d.event_date;
+      v.querySelectorAll("input[name=crit]").forEach((i) => (i.checked = (d.criteria || []).includes(i.value)));
+      $("#conf").value = d.confidence || "medium";
+      v.querySelectorAll(".opt").forEach((o) => o.classList.toggle("sel", $("input", o).checked));
+      $("#ev-fields").classList.toggle("hidden", d.outcome !== "event");
+    };
+    if (C.proposal) {
+      const open = () => { $("#own-form").classList.remove("hidden"); $("#prop-actions").classList.add("hidden"); };
+      $("#prop-accept").onclick = () => {
+        if (!C.proposal.acceptable) { fill(C.proposal.decision); open(); toast(C.proposal.note, true); return; }
+        fill(C.proposal.decision); $("#submit").click();
+      };
+      $("#prop-edit").onclick = () => { fill(C.proposal.decision); open(); };
+      $("#prop-reject").onclick = () => open();
+    }
     $("#submit").onclick = async () => {
       const outcome = (v.querySelector("input[name=outcome]:checked") || {}).value;
       const d = { outcome, subtype: (v.querySelector("input[name=subtype]:checked") || {}).value, event_date: $("#ev-date").value,
@@ -305,6 +325,21 @@
     };
   }
 
+  function proposalBox(p, P) {
+    const d = p.decision;
+    const what = d.outcome === "event" ? `Confirmed event · ${esc(P.subtypes[d.subtype] || d.subtype)} · ${esc(d.event_date)}`
+      : d.outcome === "not_event" ? "Not an event" : "Cannot determine";
+    return `<div class="card" style="background:var(--bg-tertiary)"><h3 style="margin-top:0">Proposed decision (assisted read)</h3>
+      <div><b>${what}</b> <span class="muted">· ${esc(d.confidence)} confidence</span></div>
+      ${d.criteria && d.criteria.length ? `<ul style="margin:.3rem 0 0 1rem">${d.criteria.map((c) => `<li>${esc(P.criteria[c] || c)}</li>`).join("")}</ul>` : ""}
+      <div class="muted" style="margin:.4rem 0">${esc(p.rationale)}${p.agrees_with && p.agrees_with.length ? ` · agrees with ${esc(p.agrees_with.join(", "))}` : ""}</div>
+      ${p.note ? `<div class="muted"><b>${esc(p.note)}</b></div>` : ""}
+      <div class="row-actions" id="prop-actions"><button class="btn-sm btn-ok" id="prop-accept">Accept</button>
+        <button class="btn-sm btn-secondary" id="prop-edit">Edit…</button>
+        <button class="btn-sm btn-ghost" id="prop-reject">Reject: decide myself</button></div>
+      <p class="muted" style="margin-top:.4rem">Check the evidence on the left before accepting. Your read records whether you took the proposal.</p></div>`;
+  }
+
   function annotationCase(v, C) {
     const P = C.packet, done = !!C.my_read;
     const hl = esc(P.text).replace(/(\d{1,4}(?:\.\d+)?\s*(?:%|percent|agatston)?)/gi, "<mark>$1</mark>");
@@ -313,6 +348,8 @@
       <p class="lede">Check the values the NLP extracted from this imaging report (dated ${esc(P.date)}). Correct them if wrong; leave a field blank if the report does not state it.</p>
       <div class="case-grid"><div class="card"><h2>Report text</h2><div class="fulltext" style="max-height:none;font-size:.95rem">${hl}</div></div>
       <div class="card decision">${done ? `<h2>Submitted ${chip("pass")}</h2><a href="#/queue"><button class="btn-sm btn-primary">Back</button></a>` : `
+        ${C.proposal ? `<div class="card" style="background:var(--bg-tertiary)"><b>Proposed:</b> LVEF ${C.proposal.decision.lvef.value ?? "not reported"} · CAC ${C.proposal.decision.cac_score.value ?? "not reported"}
+          <div class="row-actions"><button class="btn-sm btn-ok" id="ap-accept">Accept proposal</button><span class="muted">or correct the values below and submit</span></div></div>` : ""}
         <h3>LV ejection fraction (%)</h3><input type="number" id="a-lvef" step="0.5" value="${P.extracted.lvef ?? ""}" placeholder="not reported">
         <p class="muted">Extracted: ${P.extracted.lvef ?? "nothing"} · for a range enter the midpoint</p>
         <h3>Coronary calcium score (Agatston)</h3><input type="number" id="a-cac" step="1" value="${P.extracted.cac_score ?? ""}" placeholder="not reported">
@@ -320,6 +357,10 @@
         <h3>Comment</h3><textarea id="a-cmt"></textarea>
         <div class="row-actions"><button class="btn-primary" id="a-submit" style="width:100%">Submit</button></div>`}</div></div>`;
     if (done) return;
+    if (C.proposal) $("#ap-accept").onclick = () => {
+      $("#a-lvef").value = C.proposal.decision.lvef.value ?? ""; $("#a-cac").value = C.proposal.decision.cac_score.value ?? "";
+      $("#a-submit").click();
+    };
     $("#a-submit").onclick = async () => {
       try {
         await post(`cases/${encodeURIComponent(C.case_id)}/read`, { lvef: { value: $("#a-lvef").value }, cac_score: { value: $("#a-cac").value }, comment: $("#a-cmt").value });

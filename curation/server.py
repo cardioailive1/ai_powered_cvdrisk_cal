@@ -168,7 +168,7 @@ def create_app(data_dir: str) -> FastAPI:
             "audit": None if not ar else {"id": ar.id, "overall": ar.overall, "counts": ar.report["counts"], "created_at": ar.created_at.isoformat()},
             "approvals": approvals, "metrics": m, "gates": g, "releasable": gates_mod.releasable(g),
             "ready_for_signoff": gates_mod.ready_for_signoff(g), "releases": rels,
-            "governance": {k: gov[k] for k in ("gates", "sampling", "definitions", "label_thresholds", "provenance", "reader_policy")},
+            "governance": {k: gov[k] for k in ("gates", "sampling", "definitions", "label_thresholds", "provenance", "reader_policy", "adjudication")},
             "workload": plan_workload(run.summary, gov, max(1, len([u for u in s.scalars(select(User)) if u.active and u.role == "cardiologist"]))),
         })
 
@@ -233,7 +233,13 @@ def create_app(data_dir: str) -> FastAPI:
         view = reader_view(s, c, u)
         rd = get_run_data(data_dir, run)
         view["packet"] = rd.annotation_packet(c.ref_id) if c.case_type == "annotation" else rd.event_packet(c.ref_id)
-        log_event(s, u.username, "case.viewed", c.id, {})
+        prop = actions.case_proposal(governance.load(data_dir), rd, c, view["packet"])
+        if prop is not None:
+            if view.get("independent_reads"):      # lead: which reader the proposal agrees with
+                from .adjudication import _same
+                prop["agrees_with"] = [r["reader"] for r in view["independent_reads"] if _same(c, r, prop["decision"])]
+            view["proposal"] = prop
+        log_event(s, u.username, "case.viewed", c.id, {"proposal_shown": prop is not None})
         s.commit()
         return nan_to_none(view)
 
@@ -244,7 +250,9 @@ def create_app(data_dir: str) -> FastAPI:
         c = s.get(Case, case_id)
         if not c or c.label_run_id != run.id:
             raise HTTPException(404, "Case not found")
-        c = submit_read(s, c, u, decision, governance.load(data_dir))
+        gov = governance.load(data_dir)
+        prop = actions.case_proposal(gov, get_run_data(data_dir, run), c)   # recomputed here: what the reader was shown
+        c = submit_read(s, c, u, decision, gov, prop)
         return {"status": c.status}
 
     # ------------------------------------------------------------ audit trail & users

@@ -6,9 +6,17 @@ Sampling design (per outcome family, label-relevant candidates only):
   * auto_confirmed  — simple random sample -> PPV of auto-confirmed labels
   * auto_rejected   — simple random sample -> NPV of auto-rejected labels
   * annotation      — random imaging reports -> accuracy of LVEF / CAC extraction
-Event cases get two independent reads (blinded to the auto-label, the
-sampling stratum and each other). Disagreements go to a lead cardiologist who
-was not one of the two readers and who sees both reads.
+Event cases get two independent reads (never shown the sampling stratum or
+each other's decision). Disagreements go to a lead cardiologist who was not one
+of the two readers and who sees both reads.
+
+Proposals (governance adjudication.proposals, default on): every reader and the
+lead see a proposed decision built from the auto-label and the evidence that
+supported it, and accept it or reject it and decide themselves. Such reads are
+ASSISTED, not blinded: each read stores the proposal shown and whether it was
+accepted, and the metrics and the release report κ / PPV / NPV as agreement of
+assisted reads (anchoring on the proposal can inflate them). With proposals off,
+reads are blinded to the auto-label.
 """
 from __future__ import annotations
 
@@ -202,7 +210,7 @@ def _require_audited(db: Session, case: Case) -> None:
         raise AdjudicationError(p)
 
 
-def submit_read(db: Session, case: Case, user: User, decision: dict, gov: dict) -> Case:
+def submit_read(db: Session, case: Case, user: User, decision: dict, gov: dict, proposal: dict | None = None) -> Case:
     _require_audited(db, case)
     if case.status == "final":
         raise AdjudicationError("This case is already final.")
@@ -220,8 +228,12 @@ def submit_read(db: Session, case: Case, user: User, decision: dict, gov: dict) 
     if mine.submitted_at is not None:
         raise AdjudicationError("You have already submitted this read.")
     mine.decision = validate_decision(case, decision)
+    if proposal is not None:            # assisted read: keep what was proposed and whether the reader took it
+        accepted = _same(case, mine.decision, proposal["decision"])
+        mine.decision = {**mine.decision, "assisted": {"proposal": proposal["decision"], "accepted": accepted}}
     mine.submitted_at = utcnow()
-    log_event(db, user.username, f"adjudication.read_{mine.kind}", case.id, {"family": case.family})
+    log_event(db, user.username, f"adjudication.read_{mine.kind}", case.id,
+              {"family": case.family, **({"assisted": True, "accepted_proposal": mine.decision["assisted"]["accepted"]} if proposal else {})})
     db.flush()
     _update_status(db, case, gov, user.username)
     db.commit()
@@ -257,7 +269,64 @@ def reader_view(db: Session, case: Case, user: User) -> dict:
     return view
 
 
+# ------------------------------------------------------------------ proposals (assisted reads)
+# positive labelling-function votes -> the definition criterion they document
+LF_CRITERIA = {
+    "ami": {"trop_rise_fall": "trop_rise_fall"},
+    "stroke": {"img_infarct": "imaging_infarct", "img_hemorrhage": "imaging_hemorrhage"},
+    "hf": {"natriuretic_peptide": "np_elevated"},
+    "scd": {"resuscitation": "resuscitation", "note_arrest": "pulseless", "died_within_1d": "sudden_death"},
+    "af": {"ecg_af": "ecg_documented", "note_af": "clinician_dx", "repeat_af_codes": "clinician_dx", "cardioversion": "treatment"},
+}
+DEFAULT_SUBTYPE = {"ami": "unspecified", "stroke": "unknown", "hf": "unknown", "scd": "unknown", "af": "unknown"}
+
+
+def proposals_on(gov: dict) -> bool:
+    return bool(gov.get("adjudication", {}).get("proposals", False))
+
+
+def propose_event(row: dict, family: str) -> dict:
+    """Proposed read for an event case, from the auto-label, its probability and the supporting votes."""
+    fam = FAMILIES[family]
+    p = float(row.get("p_auto") or 0.5)
+    auto = row.get("auto_label")
+    outcome = "event" if auto == "confirmed" or (auto == "uncertain" and p >= 0.5) else "not_event"
+    votes = {k[3:]: int(v) for k, v in row.items() if k.startswith("lf_") and v == v and int(v or 0) != 0}
+    crit = sorted({c for lf, c in LF_CRITERIA.get(family, {}).items() if votes.get(lf, 0) > 0 and c in fam["criteria"]})
+    if family == "hf" and votes.get("acute_visit", 0) > 0 and votes.get("primary_dx", 0) > 0:
+        crit.append("treatment")                       # hospitalised with HF as the principal diagnosis
+    conf = "low" if auto == "uncertain" else ("high" if p >= 0.95 or p <= 0.05 else "medium")
+    for_, against = sorted(k for k, v in votes.items() if v > 0), sorted(k for k, v in votes.items() if v < 0)
+    why = (f"Auto-label {auto} (p={p:.2f}). Evidence for: {', '.join(for_) or 'none'}; against: {', '.join(against) or 'none'}.")
+    d = {"outcome": outcome, "confidence": conf, "criteria": crit if outcome == "event" else [], "comment": why,
+         "subtype": None, "event_date": None}
+    if outcome == "event":
+        st = row.get("subtype_auto")
+        d["subtype"] = st if st in fam["subtypes"] else DEFAULT_SUBTYPE[family]
+        d["event_date"] = pd.Timestamp(row["event_date"]).date().isoformat()
+    return {"decision": d, "acceptable": outcome != "event" or bool(crit), "rationale": why,
+            "note": None if outcome != "event" or crit else "No definition criterion is documented by the automatic "
+            "evidence: tick the criteria you see before accepting."}
+
+
+def propose_annotation(extracted: dict) -> dict:
+    d = {"lvef": {"value": extracted.get("lvef")}, "cac_score": {"value": extracted.get("cac_score")},
+         "comment": "Values extracted automatically from the report."}
+    return {"decision": d, "acceptable": True, "rationale": "Automatically extracted LVEF / CAC score.", "note": None}
+
+
+def _same(case: Case, a: dict, b: dict) -> bool:
+    if case.case_type == "annotation":
+        return all((a.get(f) or {}).get("value") == (b.get(f) or {}).get("value") for f in ("lvef", "cac_score"))
+    return a["outcome"] == b["outcome"] and (a["outcome"] != "event" or (a["subtype"] == b["subtype"] and a["event_date"] == b["event_date"]))
+
+
 # ------------------------------------------------------------------ metrics
+def _accept_rate(reads: list) -> float | None:
+    a = [r.decision["assisted"]["accepted"] for r in reads if "assisted" in (r.decision or {})]
+    return sum(a) / len(a) if a else None
+
+
 def wilson(k: float, n: float, z: float = 1.96) -> list[float] | None:
     if n <= 0:
         return None
@@ -316,6 +385,8 @@ def metrics(db: Session, run_id: str, labels: pd.DataFrame | None = None, annota
             "cases": len(fc), "final": len(finals), "open": sum(c.status == "open" for c in fc),
             "disagreement": sum(c.status == "disagreement" for c in fc),
             "lead_resolved": sum(1 for c in finals if c.final.get("method") == "lead_adjudication"),
+            "assisted_reads": sum(1 for c in fc for r in reads.get(c.id, []) if r.submitted_at and "assisted" in (r.decision or {})),
+            "proposal_accept_rate": _accept_rate([r for c in fc for r in reads.get(c.id, []) if r.submitted_at]),
             "double_reads": len(a), "kappa": cohen_kappa(a, b), "raw_agreement": (sum(x == y for x, y in zip(a, b)) / len(a)) if a else None,
             "ppv_auto_confirmed": conf["event"] / nc if nc else None, "ppv_ci": wilson(conf["event"], nc),
             "npv_auto_rejected": rej["not_event"] / nr if nr else None, "npv_ci": wilson(rej["not_event"], nr),

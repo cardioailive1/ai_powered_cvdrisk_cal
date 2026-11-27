@@ -18,6 +18,12 @@ DEFAULTS: dict = {
         "annotation_sample": 100,            # imaging reports checked for LVEF / CAC extraction
         "seed": 20261019,
     },
+    "adjudication": {
+        # True: each reader and the lead see a proposed decision (from the auto-label and its evidence) to accept or
+        # reject. Reads are then ASSISTED, not blinded: agreement, PPV and NPV measure agreement with assisted reads
+        # and are reported as such in the release. False: blinded independent reads.
+        "proposals": True,
+    },
     "gates": {
         "min_kappa": 0.6,                    # Cohen's kappa between independent readers, per family
         "min_double_reads_for_kappa": 10,

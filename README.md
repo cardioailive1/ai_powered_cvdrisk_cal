@@ -40,8 +40,8 @@ cardioai/
 │   ├── synthetic.py / synthetic_raw.py   Synthetic data (pipeline testing only)
 ├── curation/               Curation workbench — WORKSPACE ONLY, never deployed to Render
 │   ├── pipeline.py         CLI: init, user-add, label, audit, status, review, approve, waive, release, verify-log, refit
-│   ├── server.py + static/ Web workbench: pipeline, audit review, blinded case review, lead adjudication, metrics, audit trail
-│   ├── adjudication.py     Sampling, blinded double reads, consensus, κ / PPV / NPV / annotation accuracy
+│   ├── server.py + static/ Web workbench: pipeline, audit review (with proposals), case review with accept/reject proposals (or blinded), lead adjudication, metrics, audit trail
+│   ├── adjudication.py     Sampling, double reads (assisted by proposals or blinded), consensus, κ / PPV / NPV / annotation accuracy
 │   ├── gates.py · release.py · store.py (hash-chained audit log) · governance.py · simulate.py (synthetic only)
 ├── models/synthetic-demo/  Demo bundle (trained from a synthetic, SIMULATED-adjudication release). NOT for clinical use
 ├── tests/                  pytest: equations, NLP, API, all 5 calculators
