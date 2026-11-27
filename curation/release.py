@@ -131,6 +131,7 @@ def build_release(db: Session, data_dir, run: LabelRun, user: User) -> Release:
         "audit_report_sha256": ar.sha if ar else None, "gates": gates, "approvals": approvals,
         "adjudication": {"families": {f: {k: v for k, v in x.items() if k != "strata"} for f, x in m["families"].items()},
                          "annotation": m["annotation"], "totals": m["totals"]},
+        "assisted_reads": any(x.get("assisted_reads") for x in m["families"].values()),
         "event_label_sources": {k: int(v) for k, v in src.items()}, "endpoint_counts": counts, "implausible_values_cleared": cleaned,
         "n_patients": int(len(ds)),
     }
@@ -152,11 +153,17 @@ def release_markdown(s: dict) -> str:
         L += ["", "> **NOT FOR CLINICAL USE** — " + ("synthetic data; " if s["synthetic_data"] else "")
               + ("adjudication was SIMULATED, not performed by cardiologists." if s["simulated_adjudication"] else "")]
     L += ["", "## Sign-offs", ""] + [f"- {a['stage']}: **{a['decision']}** by {a['user']} ({a['role']}) at {a['at']} — {a['comment']}" for a in s["approvals"]]
-    L += ["", "## Adjudication", "", "| Family | Cases | κ | PPV auto-confirmed | NPV auto-rejected | Lead-resolved | Indeterminate |", "|---|---|---|---|---|---|---|"]
+    L += ["", "## Adjudication", ""]
+    if s.get("assisted_reads"):
+        L += ["> **Assisted reads.** Cardiologists and the lead were shown a proposed decision (from the auto-label and its "
+              "evidence) and accepted or rejected it. Reads were not blinded to the auto-label, so κ, PPV and NPV measure "
+              "agreement of assisted reads and may be inflated by anchoring on the proposal.", ""]
+    L += ["| Family | Cases | κ | PPV auto-confirmed | NPV auto-rejected | Lead-resolved | Indeterminate | Proposal accepted |",
+          "|---|---|---|---|---|---|---|---|"]
     fmt = lambda v: "—" if v is None else f"{v:.2f}"  # noqa: E731
     for f, x in s["adjudication"]["families"].items():
         L.append(f"| {f} | {x['cases']} | {fmt(x['kappa'])} | {fmt(x['ppv_auto_confirmed'])} | {fmt(x['npv_auto_rejected'])} | "
-                 f"{x['lead_resolved']} | {fmt(x['indeterminate_fraction'])} |")
+                 f"{x['lead_resolved']} | {fmt(x['indeterminate_fraction'])} | {fmt(x.get('proposal_accept_rate'))} |")
     a = s["adjudication"]["annotation"]
     L += ["", f"Annotation accuracy — LVEF {fmt(a['lvef']['accuracy'])}, CAC {fmt(a['cac_score']['accuracy'])}", "",
           "## Gates", ""] + [f"- {g['status'].upper()}: {g['title']} — {g['detail']}" for g in s["gates"]]

@@ -225,7 +225,7 @@ Each case is assigned to readers.
 **7.1 Kick-off (1 h, CL leads).** Walk through the Clinician Lead Guide, the definitions and 5 practice cases together. Practice cases count, so do them on the live queue.
 
 **7.2 Readers** work through **My cases**:
-- each read is blind to the auto-label, the sampling reason and other readers;
+- **assisted reads (default, `adjudication.proposals: true` in `data/governance.json`):** each reader and the lead see a **proposed decision** built from the auto-label and its evidence, and **Accept**, **Edit** or **Reject: decide myself**. Each read stores the proposal and whether it was accepted; the release report states that reads were assisted (κ / PPV / NPV can be inflated by anchoring) and the acceptance rate per outcome. Readers never see the sampling reason or other readers' decisions. Set `proposals` to `false` before approving the dataset for fully blinded reads;
 - for each case, choose event / not an event / cannot determine, then subtype, date and the criteria met;
 - report-value checks: confirm or correct the LVEF / calcium values.
 

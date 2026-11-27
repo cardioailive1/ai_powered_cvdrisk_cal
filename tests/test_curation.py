@@ -71,6 +71,7 @@ def env(tmp_path_factory):
     cfg = governance.load(d)
     cfg["provenance"] = "synthetic-demo"
     cfg["audit"]["min_cohort"] = 500
+    cfg["adjudication"]["proposals"] = False          # blinded reads unless a test turns proposals on
     governance.save(d, cfg)
     (d / ".secret").write_text("x" * 48)
     S = open_store(d)
@@ -134,6 +135,46 @@ def test_blinding_and_assignment(env):
     # decision validation
     bad = c.post(f"api/cases/{case['case_id']}/read", json={"outcome": "event"}, headers=h["card1"])
     assert bad.status_code == 400 and "subtype" in bad.json()["detail"]
+
+
+def test_assisted_reads_with_proposals(env):
+    """Proposals on: readers see a proposed decision; the read records the proposal and whether it was accepted."""
+    from curation.store import Case, Read
+    c, h, d = env["c"], env["h"], env["dir"]
+    cfg = governance.load(d)
+    cfg["adjudication"]["proposals"] = True
+    governance.save(d, cfg)
+    try:
+        q1 = c.get("api/queue", headers=h["card1"]).json()["open"]
+        q2 = {x["case_id"] for x in c.get("api/queue", headers=h["card2"]).json()["open"]}
+        both = [x for x in q1 if x["type"] == "event" and x["case_id"] in q2]
+        for x in both[:6]:
+            body = c.get(f"api/cases/{x['case_id']}", headers=h["card1"]).json()
+            p = body["proposal"]
+            assert p["decision"]["outcome"] in ("event", "not_event") and p["rationale"].startswith("Auto-label")
+            if p["acceptable"]:
+                case_id, prop = x["case_id"], p
+                break
+        else:
+            pytest.skip("no acceptable proposal among shared cases")
+        assert c.post(f"api/cases/{case_id}/read", json=prop["decision"], headers=h["card1"]).status_code == 200
+        other = {"outcome": "not_event" if prop["decision"]["outcome"] == "event" else "indeterminate",
+                 "confidence": "low", "comment": "Rejected the proposal: evidence insufficient."}
+        assert c.post(f"api/cases/{case_id}/read", json=other, headers=h["card2"]).status_code == 200
+        with env["S"]() as db:
+            reads = {db.get(User, r.reader_id).username: r.decision for r in db.query(Read).filter_by(case_id=case_id) if r.kind == "independent"}
+            status = db.get(Case, case_id).status
+        assert reads["card1"]["assisted"]["accepted"] is True and reads["card2"]["assisted"]["accepted"] is False
+        assert status == "disagreement"
+        lead = c.get(f"api/cases/{case_id}", headers=h["lead1"]).json()
+        assert lead["mode"] == "lead" and lead["proposal"]["agrees_with"] in (["Reader A"], ["Reader B"])
+        assert c.post(f"api/cases/{case_id}/read", json=lead["proposal"]["decision"], headers=h["lead1"]).status_code == 200
+        m = c.get("api/status", headers=h["ds1"]).json()["metrics"]["families"]
+        fam = next(f for f, x in m.items() if x.get("assisted_reads"))
+        assert m[fam]["assisted_reads"] >= 3 and 0 < m[fam]["proposal_accept_rate"] < 1
+    finally:
+        cfg["adjudication"]["proposals"] = False
+        governance.save(d, cfg)
 
 
 def test_gates_signoff_release(env):

@@ -57,6 +57,17 @@ def review_audit_item(db: Session, run: LabelRun, user: User, check_id: str, act
     db.commit()
 
 
+def case_proposal(gov: dict, rd, case: Case, packet: dict | None = None) -> dict | None:
+    """The proposed read for a case when governance adjudication.proposals is on (assisted reads), else None."""
+    from .adjudication import propose_annotation, propose_event, proposals_on
+    if not proposals_on(gov):
+        return None
+    if case.case_type == "annotation":
+        packet = packet or rd.annotation_packet(case.ref_id)
+        return propose_annotation(packet["extracted"])
+    return propose_event(rd.by_id.loc[case.ref_id].to_dict(), case.family)
+
+
 def audit_proposals(db: Session, data_dir, run: LabelRun) -> list[dict]:
     """Proposed acknowledge / waive / fix for each open audit item (curation.review_proposals)."""
     from .review_proposals import proposals
