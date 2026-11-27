@@ -96,10 +96,10 @@ python -m training.extract --render-only                     # review SQL (train
 python -m training.extract --cdm <catalog>.<omop_schema> --native-dataset <catalog>.<native_schema> --out data/raw
 
 python -m curation.pipeline init --data-dir data --provenance mayo-clinic-platform
-python -m curation.pipeline user-add dsmith  --role data_scientist    --full-name "D Smith"
-python -m curation.pipeline user-add drjones --role cardiologist      --full-name "Dr A Jones"
-python -m curation.pipeline user-add drlee   --role cardiologist      --full-name "Dr B Lee"
-python -m curation.pipeline user-add drchen  --role lead_cardiologist --full-name "Dr C Chen"
+python -m curation.pipeline user-add DS --role data_scientist      # initials only; no names, no passwords by default
+python -m curation.pipeline user-add AJ --role cardiologist
+python -m curation.pipeline user-add BL --role cardiologist
+python -m curation.pipeline user-add CC --role lead_cardiologist
 python -m curation.pipeline label --data-dir data            # 1 + 2 (labelling, then the required automatic audit)
 python -m curation.pipeline audit --data-dir data            #   re-run the audit if needed
 python -m curation.server --data-dir data --port 8090        # 3–5 in the browser (workspace-only)

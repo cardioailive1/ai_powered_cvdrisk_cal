@@ -88,6 +88,19 @@ def env(tmp_path_factory):
     return {"dir": d, "S": S, "c": client, "h": {u: {"Authorization": "Bearer " + t} for u, t in tok.items()}}
 
 
+def test_initials_sign_in(env):
+    """Default auth.passwords false: sign in with initials only (password ignored); the login page is told so."""
+    c = env["c"]
+    assert c.get("api/auth/config").json() == {"passwords": False}
+    r = c.post("api/auth/login", json={"username": "card1"})
+    assert r.status_code == 200 and r.json()["username"] == "card1"
+    assert c.post("api/auth/login", json={"username": "nobody"}).status_code == 401
+    h = env["h"]["admin"]
+    assert c.post("api/users", json={"username": "j.k.", "role": "data_scientist"}, headers=h).status_code == 201
+    assert c.post("api/users", json={"username": "Jane Smith", "role": "data_scientist"}, headers=h).status_code == 400
+    assert any(u["username"] == "JK" for u in c.get("api/users", headers=h).json()["users"])
+
+
 def test_auto_labels_accurate(env):
     with env["S"]() as db:
         run = current(db)
