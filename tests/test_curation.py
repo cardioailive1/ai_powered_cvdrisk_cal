@@ -190,6 +190,53 @@ def test_assisted_reads_with_proposals(env):
         governance.save(d, cfg)
 
 
+def test_notebook_workbench(env):
+    """The in-notebook workbench: sign in by initials, see the queue, accept a proposal or decide yourself."""
+    pytest.importorskip("ipywidgets")
+    from curation.notebook import Workbench, event_html
+    from curation.store import Read
+    d = env["dir"]
+    with pytest.raises(PermissionError):
+        Workbench(str(d), "ds1", display_now=False)                       # data scientists use progress()
+    with pytest.raises(ValueError):
+        Workbench(str(d), "nobody", display_now=False)
+    wb = Workbench(str(d), "card1", display_now=False)
+    if not wb.queue:
+        pytest.skip("no open cases")
+    n_open = len(wb.queue)
+    assert f"<b>{n_open}</b> open" in wb.header.value and wb.case_id == wb.queue[0]["case_id"]
+    if wb.view["case_type"] == "event":
+        assert "Coded encounters" in event_html(wb.view)
+    first = wb.case_id
+    bad = {"outcome": "indeterminate", "confidence": "low", "comment": ""}   # comment required -> refused, stays put
+    wb.submit(bad) if wb.view["case_type"] == "event" else None
+    if wb.view["case_type"] == "event":
+        assert "color:#b91c1c" in wb.status.value and wb.case_id == first
+        wb.submit({"outcome": "not_event", "confidence": "medium", "comment": "notebook test"})
+    else:
+        wb.submit({"lvef": {"value": ""}, "cac_score": {"value": ""}, "comment": "notebook test"})
+    assert "Submitted" in wb.status.value and len(wb.queue) == n_open - 1 and wb.case_id != first
+    with env["S"]() as db:
+        r = db.query(Read).filter_by(case_id=first).filter(Read.submitted_at.isnot(None)).all()
+        assert any(x.decision.get("comment") == "notebook test" for x in r)
+    cfg = governance.load(d)
+    cfg["adjudication"]["proposals"] = True
+    governance.save(d, cfg)
+    try:
+        wb.load(wb.case_id)
+        assert wb.view.get("proposal") and "Proposed decision" in wb.form.children[0].value
+        b = wb.form.children[1]
+        names = [x.description for x in b.children] if wb.view["case_type"] == "event" else [b.description]
+        assert names[0] in ("Accept", "Accept proposal")
+        before = len(wb.queue)
+        (b.children[0] if wb.view["case_type"] == "event" else b).click()   # Accept
+        if wb.view.get("proposal", {}).get("acceptable", True) or wb.view["case_type"] == "annotation":
+            assert len(wb.queue) <= before
+    finally:
+        cfg["adjudication"]["proposals"] = False
+        governance.save(d, cfg)
+
+
 def test_gates_signoff_release(env):
     c, h, d = env["c"], env["h"], env["dir"]
     with env["S"]() as db:

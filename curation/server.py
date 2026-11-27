@@ -242,18 +242,7 @@ def create_app(data_dir: str) -> FastAPI:
         c = s.get(Case, case_id)
         if not c or c.label_run_id != run.id:
             raise HTTPException(404, "Case not found")
-        view = reader_view(s, c, u)
-        rd = get_run_data(data_dir, run)
-        view["packet"] = rd.annotation_packet(c.ref_id) if c.case_type == "annotation" else rd.event_packet(c.ref_id)
-        prop = actions.case_proposal(governance.load(data_dir), rd, c, view["packet"])
-        if prop is not None:
-            if view.get("independent_reads"):      # lead: which reader the proposal agrees with
-                from .adjudication import _same
-                prop["agrees_with"] = [r["reader"] for r in view["independent_reads"] if _same(c, r, prop["decision"])]
-            view["proposal"] = prop
-        log_event(s, u.username, "case.viewed", c.id, {"proposal_shown": prop is not None})
-        s.commit()
-        return nan_to_none(view)
+        return nan_to_none(actions.open_case(s, data_dir, run, u, case_id))
 
     @app.post("/api/cases/{case_id}/read")
     def post_read(case_id: str, decision: dict[str, Any], u: User = Depends(user), s=Depends(db)):
@@ -262,10 +251,7 @@ def create_app(data_dir: str) -> FastAPI:
         c = s.get(Case, case_id)
         if not c or c.label_run_id != run.id:
             raise HTTPException(404, "Case not found")
-        gov = governance.load(data_dir)
-        prop = actions.case_proposal(gov, get_run_data(data_dir, run), c)   # recomputed here: what the reader was shown
-        c = submit_read(s, c, u, decision, gov, prop)
-        return {"status": c.status}
+        return {"status": actions.submit_case_read(s, data_dir, run, u, case_id, decision)}
 
     # ------------------------------------------------------------ audit trail & users
     @app.get("/api/log")
